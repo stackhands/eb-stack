@@ -1,0 +1,1 @@
+`scripts/eessi-extend-eb.sh` still reaches EasyBuild when `rustc` is not on `PATH`, and the Cargo prelude takes a mirror's compatibility layer from `EESSI_CVMFS_REPO` when `EESSI_EPREFIX` is unset. CI runs `tests/eessi_extend_eb_script.rs`.

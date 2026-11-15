@@ -28,11 +28,14 @@ pub fn eessi_cargo_host_isolation() -> &'static str {
         r#"eval $(env | awk -F= '/^CARGO_TARGET_[A-Z0-9_]*_(LINKER|RUSTFLAGS)=/{print "unset "$1}') && "#,
         "export CARGO_HOME=%(builddir)s/.cargohome && ",
         "export LINKER=${CC:-gcc} && ",
-        r#"_triple=$(rustc -vV 2>/dev/null | awk "/^host:/{print \$2}") && "#,
+        // An ordinary recipe has no rustc. The host triple is best-effort,
+        // the same way scripts/eessi-extend-eb.sh discovers it, so a missing
+        // compiler does not drop the compat-layer linker from PATH.
+        r#"_triple=""; if _host=$(rustc -vV 2>/dev/null); then _triple=$(printf '%s\n' "$_host" | awk '/^host:/{print $2}'); fi && "#,
         r#"_triple_env=$(printf %s "$_triple" | tr "[:lower:]-" "[:upper:]_") && "#,
         r#"if [ -n "$_triple_env" ]; then eval export CARGO_TARGET_${_triple_env}_LINKER=${CC:-gcc}; fi && "#,
         r#"_arch=$(uname -m) && "#,
-        r#"_ebld=${EESSI_EPREFIX:-/cvmfs/software.eessi.io/versions/${EESSI_VERSION:-2026.06}/compat/linux/${_arch}}/usr/bin && "#,
+        r#"_ebld=${EESSI_EPREFIX:-${EESSI_CVMFS_REPO:-/cvmfs/software.eessi.io}/versions/${EESSI_VERSION:-2026.06}/compat/linux/${_arch}}/usr/bin && "#,
         r#"export PATH="$_ebld:$PATH" && "#,
         r#"export RUSTFLAGS="-C link-arg=-B$_ebld $(printf -- '-L %s ' $(echo ${LIBRARY_PATH:-} | tr ':' ' '))" && "#,
     )
@@ -508,8 +511,12 @@ pyo3 = "0.22"
         let prelude = eessi_cargo_host_isolation();
         assert!(prelude.contains("unset RUSTC_WRAPPER"));
         assert!(prelude.contains("uname -m"));
-        assert!(prelude.contains("_ebld=${EESSI_EPREFIX:-"));
+        assert!(prelude.contains("_ebld=${EESSI_EPREFIX:-${EESSI_CVMFS_REPO:-"));
         assert!(prelude.contains("compat/linux/${_arch}}/usr/bin"));
+        assert!(
+            prelude.contains("if _host=$(rustc -vV 2>/dev/null); then"),
+            "a missing rustc must not abort the prelude"
+        );
         assert!(prelude.contains("link-arg=-B"));
         assert!(prelude.contains("LINKER=${CC:-gcc}"));
         assert!(
