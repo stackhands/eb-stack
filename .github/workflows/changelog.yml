@@ -1,0 +1,46 @@
+name: changelog
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: changelog-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  draft:
+    name: towncrier build --draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v7
+      - name: Draft the changelog
+        run: |
+          set -euo pipefail
+          # The draft heading needs a version; Cargo.toml holds the one a release cuts.
+          version=$(sed -n '0,/^version = /s/^version = "\(.*\)"$/\1/p' Cargo.toml)
+          test -n "$version"
+          uvx towncrier@26.9.0 build --draft --version "$version"
+      - name: A malformed fragment fails the draft
+        run: |
+          set -euo pipefail
+          version=$(sed -n '0,/^version = /s/^version = "\(.*\)"$/\1/p' Cargo.toml)
+          name=not-a-fragment.md
+          printf '%s\n' 'This name has no fragment type.' > "changelog.d/$name"
+          set +e
+          out=$(uvx towncrier@26.9.0 build --draft --version "$version" 2>&1)
+          code=$?
+          set -e
+          printf '%s\n' "$out"
+          rm -f "changelog.d/$name"
+          test "$code" -ne 0
+          printf '%s\n' "$out" | grep -F "Invalid news fragment name: $name"
