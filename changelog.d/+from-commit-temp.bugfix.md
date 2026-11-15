@@ -1,0 +1,1 @@
+A `from-commit` read uses a directory it created for that read. It no longer shares `eb-stack-from-commit-<pid>` with every other read in the process, and it does not remove a directory that was already there.
