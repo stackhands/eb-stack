@@ -384,6 +384,23 @@ pub struct SolverMeta {
     pub criteria: Vec<String>,
 }
 
+/// RFC 3339 time written into a lock.
+///
+/// `SOURCE_DATE_EPOCH`, when it is a decimal number of seconds since the Unix
+/// epoch, is that time in UTC. Two solves of the same inputs then write the
+/// same timestamp. Anything else, including an empty or non-numeric value, is
+/// the current time.
+pub fn solver_timestamp() -> String {
+    if let Ok(raw) = std::env::var("SOURCE_DATE_EPOCH") {
+        if let Ok(seconds) = raw.trim().parse::<i64>() {
+            if let Some(stamp) = chrono::DateTime::from_timestamp(seconds, 0) {
+                return stamp.to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+            }
+        }
+    }
+    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 /// A complete, reproducible selection: every package a stack installs.
 pub struct StackLock {
@@ -406,5 +423,30 @@ impl StackLock {
     /// package.
     pub fn package(&self, name: &str) -> Option<&LockPackage> {
         self.packages.iter().find(|p| p.name == name)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn source_date_epoch_is_the_lock_timestamp() {
+        let previous = std::env::var("SOURCE_DATE_EPOCH").ok();
+        std::env::set_var("SOURCE_DATE_EPOCH", "1700000000");
+        let direct = solver_timestamp();
+        let lock = crate::eb_parse::lock_from_candidates(&[], None, "test");
+        let again = crate::eb_parse::lock_from_candidates(&[], None, "test");
+        match previous {
+            Some(value) => std::env::set_var("SOURCE_DATE_EPOCH", value),
+            None => std::env::remove_var("SOURCE_DATE_EPOCH"),
+        }
+        assert_eq!(direct, "2023-11-14T22:13:20Z");
+        assert_eq!(lock.solver.timestamp, "2023-11-14T22:13:20Z");
+        assert_eq!(again.solver.timestamp, lock.solver.timestamp);
+        std::env::set_var("SOURCE_DATE_EPOCH", "not-a-time");
+        let fallback = solver_timestamp();
+        std::env::remove_var("SOURCE_DATE_EPOCH");
+        assert_ne!(fallback, "2023-11-14T22:13:20Z");
     }
 }
