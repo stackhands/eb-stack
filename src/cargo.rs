@@ -27,17 +27,22 @@ pub fn eessi_cargo_host_isolation() -> &'static str {
         "unset RUSTC_WRAPPER CARGO_BUILD_RUSTC_WRAPPER RUSTC_WORKSPACE_WRAPPER RUSTFLAGS CARGO_ENCODED_RUSTFLAGS && ",
         r#"eval $(env | awk -F= '/^CARGO_TARGET_[A-Z0-9_]*_(LINKER|RUSTFLAGS)=/{print "unset "$1}') && "#,
         "export CARGO_HOME=%(builddir)s/.cargohome && ",
-        "export LINKER=${CC:-gcc} && ",
+        // CC and LIBRARY_PATH are data. An unquoted expansion is reparsed by
+        // `eval`, so `CC='gcc; echo pwned'` would run. Default an empty CC,
+        // keep the value quoted, and only allow a triple that is a variable name.
+        r#"if [ -z "${CC:-}" ]; then CC=gcc; fi && "#,
+        r#"export LINKER="$CC" && "#,
         // An ordinary recipe has no rustc. The host triple is best-effort,
         // the same way scripts/eessi-extend-eb.sh discovers it, so a missing
         // compiler does not drop the compat-layer linker from PATH.
         r#"_triple=""; if _host=$(rustc -vV 2>/dev/null); then _triple=$(printf '%s\n' "$_host" | awk '/^host:/{print $2}'); fi && "#,
-        r#"_triple_env=$(printf %s "$_triple" | tr "[:lower:]-" "[:upper:]_") && "#,
-        r#"if [ -n "$_triple_env" ]; then eval export CARGO_TARGET_${_triple_env}_LINKER=${CC:-gcc}; fi && "#,
+        r#"_triple_env=$(printf %s "$_triple" | tr "[:lower:]-" "[:upper:]_" | tr -cd 'A-Z0-9_') && "#,
+        r#"if [ -n "$_triple_env" ]; then eval "export CARGO_TARGET_${_triple_env}_LINKER=\"\$CC\""; fi && "#,
         r#"_arch=$(uname -m) && "#,
         r#"_ebld=${EESSI_EPREFIX:-${EESSI_CVMFS_REPO:-/cvmfs/software.eessi.io}/versions/${EESSI_VERSION:-2026.06}/compat/linux/${_arch}}/usr/bin && "#,
         r#"export PATH="$_ebld:$PATH" && "#,
-        r#"export RUSTFLAGS="-C link-arg=-B$_ebld $(printf -- '-L %s ' $(echo ${LIBRARY_PATH:-} | tr ':' ' '))" && "#,
+        r#"_rlibs= && _ifs="$IFS" && IFS=: && set -f && for _dir in ${LIBRARY_PATH:-}; do [ -n "$_dir" ] || continue; _rlibs="${_rlibs} -L ${_dir}"; done && IFS="$_ifs" && set +f && "#,
+        r#"export RUSTFLAGS="-C link-arg=-B$_ebld${_rlibs}" && "#,
     )
 }
 
@@ -518,10 +523,38 @@ pyo3 = "0.22"
             "a missing rustc must not abort the prelude"
         );
         assert!(prelude.contains("link-arg=-B"));
-        assert!(prelude.contains("LINKER=${CC:-gcc}"));
+        assert!(prelude.contains("export LINKER=\"$CC\""));
+        assert!(prelude.contains("tr -cd 'A-Z0-9_'"));
+        assert!(!prelude.contains("LINKER=${CC:-gcc}"));
         assert!(
             !prelude.contains("X86_64"),
             "triple and compat arch are runtime, not a plan-time x86_64 literal:\n{prelude}"
+        );
+    }
+
+    #[test]
+    fn eessi_cargo_isolation_does_not_run_a_command_hidden_in_cc() {
+        let prelude = eessi_cargo_host_isolation();
+        // EasyBuild substitutes %(builddir)s before the shell sees the line.
+        // A raw parenthesis is a syntax error, so the substitution has to
+        // happen here too or the injection never runs.
+        let script = format!("{} true\n", prelude.replace("%(builddir)s", "/tmp"));
+        let out = std::process::Command::new("bash")
+            .arg("-c")
+            .arg(&script)
+            .env("CC", "gcc; echo CC_PWNED")
+            .env("LIBRARY_PATH", "/usr/lib")
+            .output()
+            .expect("bash");
+        let text = format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert!(
+            out.status.success() && !text.contains("CC_PWNED"),
+            "status {:?} prelude injected or failed:\nPRELUDE {prelude}\nOUT {text}",
+            out.status
         );
     }
 }

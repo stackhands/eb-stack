@@ -181,7 +181,9 @@ it. Do not hand-edit the emitted recipe for those names. A PEP 518
 ~build_system~ object with ~build-backend = mesonpy~ is the mesonpy hint:
 listed ~requires~ become build deps in the Boolean satisfiability (SAT) solve, and the emitter writes
 ~wrap_mode=default~ plus the shared cargo-on-EESSI isolation prelude
-(host wrappers off, ~LINKER=${CC:-gcc}~, compat ~ld~ from ~uname -m~).
+(host wrappers off, ~LINKER="$CC"~ after an empty ~CC~ becomes ~gcc~,
+compat ~ld~ from ~uname -m~). ~CC~ and ~LIBRARY_PATH~ stay quoted, so a
+value in either is not run as shell.
 Hatchling stays a ~Python-bundle-PyPI~ module when the robot provides
 it. See [[file:../howto/pypi-extend.org][site Python extras]].
 
