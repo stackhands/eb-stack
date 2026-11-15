@@ -3,8 +3,10 @@
 # EESSI init is not nounset-safe.
 set -eo pipefail
 
-ver=${EESSI_VERSION:-2025.06}
-init=/cvmfs/software.eessi.io/versions/${ver}/init/lmod/bash
+# EESSI_CVMFS_REPO names a mirror or another EESSI repository.
+repo=${EESSI_CVMFS_REPO:-/cvmfs/software.eessi.io}
+ver=${EESSI_VERSION:-2026.06}
+init=${repo}/versions/${ver}/init/lmod/bash
 if [[ ! -e $init ]]; then
   echo "eessi-extend-eb: missing ${init}" >&2
   exit 2
@@ -18,12 +20,18 @@ n=0
 [[ -n ${EESSI_PROJECT_INSTALL:-} ]] && n=$((n + 1))
 [[ -n ${EESSI_SITE_INSTALL:-} ]] && n=$((n + 1))
 [[ -n ${EESSI_CVMFS_INSTALL:-} ]] && n=$((n + 1))
-if [[ $n -eq 0 ]]; then
-  export EESSI_USER_INSTALL=${EESSI_USER_INSTALL:-$HOME/EESSI}
-  mkdir -p "$EESSI_USER_INSTALL"
-elif [[ $n -gt 1 ]]; then
+if [[ $n -gt 1 ]]; then
   echo "eessi-extend-eb: set exactly one of EESSI_USER_INSTALL, EESSI_PROJECT_INSTALL, EESSI_SITE_INSTALL, EESSI_CVMFS_INSTALL" >&2
   exit 3
+fi
+# EESSI-extend refuses a user prefix that does not exist. Project and
+# site prefixes need their group and modes set by an owner, so they are
+# not created here.
+if [[ $n -eq 0 ]]; then
+  export EESSI_USER_INSTALL=$HOME/EESSI
+fi
+if [[ -n ${EESSI_USER_INSTALL:-} ]]; then
+  mkdir -p "$EESSI_USER_INSTALL"
 fi
 
 export WORKING_DIR=${WORKING_DIR:-/tmp}
@@ -39,10 +47,9 @@ _triple_env=$(printf %s "${_triple:-}" | tr '[:lower:]-' '[:upper:]_')
 if [[ -n ${_triple_env} ]]; then
   eval "export CARGO_TARGET_${_triple_env}_LINKER=\${CC:-gcc}"
 fi
-# foss wrappers can drop the compat-layer ld that collect2 needs.
+# foss wrappers can drop the compat-layer ld that collect2 needs. The
+# init above sets EESSI_EPREFIX to the compat layer it loaded.
 _arch=$(uname -m)
-if [[ -n ${EESSI_VERSION:-} ]]; then
-  export PATH="/cvmfs/software.eessi.io/versions/${EESSI_VERSION}/compat/linux/${_arch}/usr/bin:${PATH}"
-fi
+export PATH="${EESSI_EPREFIX:-${repo}/versions/${ver}/compat/linux/${_arch}}/usr/bin:${PATH}"
 module load EESSI-extend
 exec eb "$@"

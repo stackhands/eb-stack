@@ -236,7 +236,8 @@ fn assert_eessi_cargo_isolation(text: &str) {
     assert!(
         text.contains("unset RUSTC_WRAPPER")
             && text.contains("uname -m")
-            && text.contains("compat/linux/${_arch}/usr/bin")
+            && text.contains("${EESSI_EPREFIX:-")
+            && text.contains("compat/linux/${_arch}}/usr/bin")
             && text.contains("link-arg=-B")
             && text.contains("LINKER=${CC:-gcc}")
             && !text.contains("X86_64"),

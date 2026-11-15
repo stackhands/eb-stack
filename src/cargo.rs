@@ -32,7 +32,7 @@ pub fn eessi_cargo_host_isolation() -> &'static str {
         r#"_triple_env=$(printf %s "$_triple" | tr "[:lower:]-" "[:upper:]_") && "#,
         r#"if [ -n "$_triple_env" ]; then eval export CARGO_TARGET_${_triple_env}_LINKER=${CC:-gcc}; fi && "#,
         r#"_arch=$(uname -m) && "#,
-        r#"_ebld=/cvmfs/software.eessi.io/versions/${EESSI_VERSION:-2025.06}/compat/linux/${_arch}/usr/bin && "#,
+        r#"_ebld=${EESSI_EPREFIX:-/cvmfs/software.eessi.io/versions/${EESSI_VERSION:-2026.06}/compat/linux/${_arch}}/usr/bin && "#,
         r#"export PATH="$_ebld:$PATH" && "#,
         r#"export RUSTFLAGS="-C link-arg=-B$_ebld $(printf -- '-L %s ' $(echo ${LIBRARY_PATH:-} | tr ':' ' '))" && "#,
     )
@@ -508,7 +508,8 @@ pyo3 = "0.22"
         let prelude = eessi_cargo_host_isolation();
         assert!(prelude.contains("unset RUSTC_WRAPPER"));
         assert!(prelude.contains("uname -m"));
-        assert!(prelude.contains("compat/linux/${_arch}/usr/bin"));
+        assert!(prelude.contains("_ebld=${EESSI_EPREFIX:-"));
+        assert!(prelude.contains("compat/linux/${_arch}}/usr/bin"));
         assert!(prelude.contains("link-arg=-B"));
         assert!(prelude.contains("LINKER=${CC:-gcc}"));
         assert!(
