@@ -127,6 +127,34 @@ fn a_project_prefix_is_not_created() {
 }
 
 #[test]
+fn an_empty_site_install_is_not_a_user_prefix() {
+    let fake = Fake::new("2026.06", None);
+    let out = fake.run(&[("EESSI_SITE_INSTALL", "")]);
+    ok(&out);
+    assert!(!fake.path("home/EESSI").exists());
+    assert_eq!(var(&out, "EESSI_USER_INSTALL"), None);
+    assert_eq!(var(&out, "EESSI_SITE_INSTALL"), Some(""));
+}
+
+#[test]
+fn an_empty_cvmfs_install_is_not_a_user_prefix() {
+    let fake = Fake::new("2026.06", None);
+    let out = fake.run(&[("EESSI_CVMFS_INSTALL", "")]);
+    ok(&out);
+    assert!(!fake.path("home/EESSI").exists());
+    assert_eq!(var(&out, "EESSI_USER_INSTALL"), None);
+    assert_eq!(var(&out, "EESSI_CVMFS_INSTALL"), Some(""));
+}
+
+#[test]
+fn an_empty_site_install_with_a_user_prefix_is_refused() {
+    let fake = Fake::new("2026.06", None);
+    let out = fake.run(&[("EESSI_SITE_INSTALL", ""), ("EESSI_USER_INSTALL", "/x")]);
+    assert_eq!(out.status.code(), Some(3));
+    assert!(!fake.path("home/EESSI").exists());
+}
+
+#[test]
 fn two_prefixes_are_refused() {
     let fake = Fake::new("2026.06", None);
     let out = fake.run(&[

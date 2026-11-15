@@ -15,11 +15,14 @@ fi
 source "$init"
 
 # Exactly one prefix variable; the module reads them at load time.
+# EESSI-extend uses os.getenv(name) ~= nil, so a present empty value is
+# set. An empty EESSI_SITE_INSTALL is site mode. Counting only non-empty
+# values also exported EESSI_USER_INSTALL, and the module refused both.
 n=0
-[[ -n ${EESSI_USER_INSTALL:-} ]] && n=$((n + 1))
-[[ -n ${EESSI_PROJECT_INSTALL:-} ]] && n=$((n + 1))
-[[ -n ${EESSI_SITE_INSTALL:-} ]] && n=$((n + 1))
-[[ -n ${EESSI_CVMFS_INSTALL:-} ]] && n=$((n + 1))
+[[ -v EESSI_USER_INSTALL ]] && n=$((n + 1))
+[[ -v EESSI_PROJECT_INSTALL ]] && n=$((n + 1))
+[[ -v EESSI_SITE_INSTALL ]] && n=$((n + 1))
+[[ -v EESSI_CVMFS_INSTALL ]] && n=$((n + 1))
 if [[ $n -gt 1 ]]; then
   echo "eessi-extend-eb: set exactly one of EESSI_USER_INSTALL, EESSI_PROJECT_INSTALL, EESSI_SITE_INSTALL, EESSI_CVMFS_INSTALL" >&2
   exit 3

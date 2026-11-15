@@ -1,0 +1,1 @@
+`scripts/eessi-extend-eb.sh` counts a present `EESSI_*_INSTALL` variable as set when the value is empty, matching EESSI-extend. An empty `EESSI_SITE_INSTALL` or `EESSI_CVMFS_INSTALL` stays in that mode and no longer also creates a user prefix.
