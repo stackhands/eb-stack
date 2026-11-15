@@ -412,7 +412,7 @@ fn matches_compatible_release(version: &str, floor: &str) -> bool {
         return true;
     }
     let ceiling = series_ceiling(&components, components.len() - 2);
-    cmp_version(version, &ceiling) == Ordering::Less
+    below_series_ceiling(version, &ceiling)
 }
 
 /// `^X.Y.Z` allows anything up to the next change of the left-most non-zero
@@ -430,7 +430,7 @@ fn matches_caret(version: &str, floor: &str) -> bool {
         .position(|component| *component != 0)
         .unwrap_or(components.len() - 1);
     let ceiling = series_ceiling(&components, significant);
-    cmp_version(version, &ceiling) == Ordering::Less
+    below_series_ceiling(version, &ceiling)
 }
 
 /// `~X.Y.Z` and `~X.Y` allow patch-level changes, `~X` minor-level ones.
@@ -444,7 +444,7 @@ fn matches_tilde(version: &str, floor: &str) -> bool {
     }
     let index = if components.len() >= 2 { 1 } else { 0 };
     let ceiling = series_ceiling(&components, index);
-    cmp_version(version, &ceiling) == Ordering::Less
+    below_series_ceiling(version, &ceiling)
 }
 
 #[cfg(test)]
@@ -493,6 +493,20 @@ mod ecosystem_operator_tests {
     fn a_prerelease_suffix_does_not_move_the_bound() {
         assert!(matches_req("1.2.3rc1", "^1.2.0"));
         assert!(matches_req("1.2.3", "~=1.2.0"));
+    }
+
+    #[test]
+    fn a_prerelease_of_the_next_series_is_outside_the_bound() {
+        // `cmp_version` orders `1.3.0rc1` before `1.3`. A series ceiling of
+        // `1.3` still excludes that pre-release: it is the next series, not
+        // a member of `1.2`.
+        assert!(!matches_req("1.3.0rc1", "~=1.2.0"));
+        assert!(!matches_req("2.0.0rc1", "^1.2.0"));
+        assert!(!matches_req("1.3.0rc1", "~1.2.3"));
+        assert!(matches_req("1.3.0rc1", "^1.2.0"));
+        assert!(matches_req("1.2.9rc1", "~=1.2.0"));
+        assert!(matches_req("1.2.9rc1", "^1.2.0"));
+        assert!(matches_req("1.2.9rc1", "~1.2.3"));
     }
 }
 
