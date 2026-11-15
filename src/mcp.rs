@@ -2874,6 +2874,7 @@ fn stack_solve(arguments: &Value) -> Result<Value, String> {
             return Err("toolchain needs at least one root or roots_from_build_list".into());
         }
         let generated;
+        let created = policy_arg.is_none();
         let policy = if let Some(path) = policy_arg {
             path
         } else {
@@ -2884,10 +2885,10 @@ fn stack_solve(arguments: &Value) -> Result<Value, String> {
                 .map_err(|error| error.to_string())?;
             let name = parsed.name.as_str();
             let version = parsed.version.as_str();
-            generated = std::env::temp_dir().join(format!(
-                "eb-stack-policy-{name}-{version}-{}.json",
-                std::process::id()
-            ));
+            generated = crate::workspace_fs::exclusive_temp_path(&format!(
+                "eb-stack-policy-{name}-{version}"
+            ))
+            .map_err(|error| error.to_string())?;
             let body = json!({
                 "toolchain": {"name": name, "version": version},
                 "roots": roots,
@@ -2900,6 +2901,17 @@ fn stack_solve(arguments: &Value) -> Result<Value, String> {
             .map_err(|error| error.to_string())?;
             generated
         };
+        // The CLI removes a policy it wrote. Leave this one until the solve
+        // returns, including the error paths above the solve.
+        struct GeneratedPolicy(Option<PathBuf>);
+        impl Drop for GeneratedPolicy {
+            fn drop(&mut self) {
+                if let Some(path) = self.0.take() {
+                    let _ = std::fs::remove_file(path);
+                }
+            }
+        }
+        let _remove_generated = GeneratedPolicy(created.then(|| policy.clone()));
         let stacks = string_array(arguments, "baseline_easystack")?
             .into_iter()
             .map(PathBuf::from)
