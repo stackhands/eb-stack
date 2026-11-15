@@ -644,3 +644,54 @@ fn discovery_metadata_uses_real_index_terms() {
         );
     }
 }
+
+/// The locked crate is the one the binary links. A caret in `Cargo.toml`
+/// does not record that, so a later `cargo update` can move rustls or rustix
+/// back onto a release `cargo audit` rejects.
+fn locked_crate_version(lock: &str, package: &str) -> Option<Vec<u64>> {
+    let mut current = None;
+    for line in lock.lines() {
+        if let Some(rest) = line.strip_prefix("name = \"") {
+            current = rest.strip_suffix('"').map(str::to_string);
+        } else if let Some(rest) = line.strip_prefix("version = \"") {
+            if current.as_deref() == Some(package) {
+                let text = rest.strip_suffix('"')?;
+                let mut parts = Vec::new();
+                for part in text.split('.') {
+                    parts.push(part.parse::<u64>().ok()?);
+                }
+                return Some(parts);
+            }
+        }
+    }
+    None
+}
+
+fn version_at_least(got: &[u64], floor: &[u64]) -> bool {
+    let width = got.len().max(floor.len());
+    for index in 0..width {
+        let left = got.get(index).copied().unwrap_or(0);
+        let right = floor.get(index).copied().unwrap_or(0);
+        match left.cmp(&right) {
+            std::cmp::Ordering::Greater => return true,
+            std::cmp::Ordering::Less => return false,
+            std::cmp::Ordering::Equal => {}
+        }
+    }
+    true
+}
+
+#[test]
+fn the_lockfile_pins_patched_rustls_and_rustix() {
+    let lock = std::fs::read_to_string(repo().join("Cargo.lock")).expect("read Cargo.lock");
+    let rustls = locked_crate_version(&lock, "rustls").expect("rustls in Cargo.lock");
+    let rustix = locked_crate_version(&lock, "rustix").expect("rustix in Cargo.lock");
+    assert!(
+        version_at_least(&rustls, &[0, 23, 46]),
+        "rustls {rustls:?} is below 0.23.46 (RUSTSEC-2026-0285, RUSTSEC-2026-0346, RUSTSEC-2026-0348, RUSTSEC-2026-0349)"
+    );
+    assert!(
+        version_at_least(&rustix, &[1, 1, 6]),
+        "rustix {rustix:?} is below 1.1.6 (RUSTSEC-2026-0486)"
+    );
+}
