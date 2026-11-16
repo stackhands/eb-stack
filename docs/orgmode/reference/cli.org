@@ -2067,8 +2067,9 @@ through a symbolic or hard link, is refused, and so is a head path that is
 a symbolic link. A signing key with more than one hard link is refused. The
 lock is a POSIX record lock: whether it excludes writers on several hosts
 depends on the shared file system's lock support. ~show~ prints ~index~,
-~ts~, ~action~, ~target~, ~module~ and ~actor~ per record, newest first, then
-~K of N records~. ~--package~ matches a whole module name, or the software
+~ts~, ~action~, ~stage~, ~target~, ~module~ and ~actor~ per record, newest
+first, then ~K of N records~; ~stage~ is empty for a record without one.
+~--package~ matches a whole module name, or the software
 name before its ~/~. ~--json~ prints the records as a JSON array.
 
 ~verify --record N --head HEAD~ checks HEAD's signature against

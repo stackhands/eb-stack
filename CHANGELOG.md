@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here.
 
+## Unreleased
+
+### Fixed
+
+- `ledger show` prints each record's `stage` after `action`. The started and
+  finished records of one staged rebuild printed as two identical rows.
+
 ## 0.7.4 - 2026-11-13
 
 ### Added
