@@ -8630,7 +8630,9 @@ Target layers are applied in argument order. A complete target contains:
   environment.
 
 `target doctor` probes each layer separately and reports the exact routed
-command, exit code, stdout, and stderr.
+command, exit code, stdout, and stderr, and a `reason` when a probe that
+exited 0 still failed. With `EB_LOCAL_EESSI_EXTEND` on, the EasyBuild probe
+passes only when `--version` prints `This is EasyBuild`.
 
 See [build target configuration](https://eb-stack.rgoswami.me/targets.html.md) for complete layer schemas,
 replacement semantics, ABI isolation, and the runnable local Podman target.
@@ -9855,7 +9857,11 @@ eb-stack target doctor \
 
 `target doctor` independently executes transport, executor, runtime, and
 EasyBuild probes. A reachable SSH host is not enough; all four checks must
-succeed.
+succeed. When `[targets.easybuild.environment]` turns on
+`EB_LOCAL_EESSI_EXTEND` (set, not empty, not `0`), exit 0 is not enough
+either: `--version` must print EasyBuild's `This is EasyBuild` line. An
+eb-local without extend mode answers `--version` itself, and the check then
+fails with a `reason`.
 
 # Transport
 

@@ -1926,7 +1926,9 @@ Target layers are applied in argument order. A complete target contains:
   environment.
 
 ~target doctor~ probes each layer separately and reports the exact routed
-command, exit code, stdout, and stderr.
+command, exit code, stdout, and stderr, and a ~reason~ when a probe that
+exited 0 still failed. With ~EB_LOCAL_EESSI_EXTEND~ on, the EasyBuild probe
+passes only when ~--version~ prints ~This is EasyBuild~.
 
 See [[file:targets.org][build target configuration]] for complete layer schemas,
 replacement semantics, ABI isolation, and the runnable local Podman target.

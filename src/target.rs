@@ -225,6 +225,9 @@ pub struct DoctorCheck {
     pub stdout: String,
     /// Captured standard error.
     pub stderr: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Why a probe that exited 0 still failed.
+    pub reason: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -669,6 +672,15 @@ printf 'arch=%s\ncpu_model=%s\n' "$arch" "$cpu_model"
         })
     }
 
+    /// Whether the target sets eb-local's extend mode, read as eb-local
+    /// reads it: present, not empty, and not `0`.
+    fn engages_eb_local_eessi_extend(&self) -> bool {
+        self.easybuild
+            .environment
+            .get("EB_LOCAL_EESSI_EXTEND")
+            .is_some_and(|value| !value.is_empty() && value != "0")
+    }
+
     fn compiler_wrapper_env_unsets(&self) -> Vec<String> {
         let mut names: BTreeSet<String> = BTreeSet::new();
         names.insert("RUSTC_WRAPPER".into());
@@ -868,6 +880,7 @@ pub fn doctor_target(target: &BuildTarget) -> Result<TargetDoctorReport, TargetE
     easybuild_probe.push(target.easybuild.command.clone());
     easybuild_probe.push("--version".into());
     let easybuild = target.route_tokens(target.runtime_tokens(easybuild_probe), true);
+    let eessi_extend = target.engages_eb_local_eessi_extend();
     let checks = [
         ("transport", transport),
         ("executor", executor),
@@ -875,12 +888,37 @@ pub fn doctor_target(target: &BuildTarget) -> Result<TargetDoctorReport, TargetE
         ("easybuild", easybuild),
     ]
     .into_iter()
-    .map(|(layer, command)| run_doctor_check(layer, command))
+    .map(|(layer, command)| {
+        let mut check = run_doctor_check(layer, command);
+        if eessi_extend && layer == "easybuild" {
+            require_easybuild_banner(&mut check);
+        }
+        check
+    })
     .collect();
     Ok(TargetDoctorReport {
         target: target.name.clone(),
         checks,
     })
+}
+
+/// First eb-local release in which `EB_LOCAL_EESSI_EXTEND` hands every
+/// argument to `eb`.
+const EB_LOCAL_EESSI_EXTEND_SINCE: &str = "2.5.0";
+
+/// Under `EB_LOCAL_EESSI_EXTEND`, exit 0 does not show that `eb` ran: an
+/// eb-local without that mode answers `--version` itself. Only EasyBuild
+/// prints its banner.
+fn require_easybuild_banner(check: &mut DoctorCheck) {
+    if check.success && !check.stdout.contains("This is EasyBuild ") {
+        check.success = false;
+        check.reason = Some(format!(
+            "EB_LOCAL_EESSI_EXTEND is set, but --version exited 0 without \
+             printing \"This is EasyBuild\", so eb never ran. eb-local before \
+             {EB_LOCAL_EESSI_EXTEND_SINCE} has no extend mode and answers \
+             --version itself."
+        ));
+    }
 }
 
 /// Probe one layer. A command that cannot be started is a failed check, not
@@ -893,6 +931,7 @@ fn run_doctor_check(layer: &str, command: CommandPlan) -> DoctorCheck {
             exit_code: output.status.code(),
             stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
             stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+            reason: None,
             command,
         },
         Err(error) => DoctorCheck {
@@ -901,6 +940,7 @@ fn run_doctor_check(layer: &str, command: CommandPlan) -> DoctorCheck {
             exit_code: None,
             stdout: String::new(),
             stderr: error.to_string(),
+            reason: None,
             command,
         },
     }
