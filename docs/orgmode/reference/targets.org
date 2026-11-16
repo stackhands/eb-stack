@@ -73,11 +73,13 @@ The ~eessi~ runtime is the install backend for site/user/project overlays.
 It launches ~eessi_container.sh --mode exec~, fuse-mounts CernVM File System (CVMFS) inside the
 image, and does not use the host CVMFS client. Plan ~package plan --format pypi|cran~
 on the host: the host ~eb-stack~ binary need not run in the
-Debian 12 image. ~scripts/eessi-extend-eb.sh~ sources the European Environment for Scientific Software Installations (EESSI) init script, loads
-~EESSI-extend~, and execs ~eb~. See ~examples/targets/eessi-extend.toml~.
+Debian 12 image. The EasyBuild command is ~eb-local~ with
+~EB_LOCAL_EESSI_EXTEND=1~: that sources the European Environment for Scientific Software Installations (EESSI) init script, loads
+~EESSI-extend~, and execs ~eb~. Bind the ~eb-local~ binary into the container;
+eb-stack does not build it. See ~examples/targets/eessi-extend.toml~.
 Set exactly one of ~EESSI_USER_INSTALL~, ~EESSI_PROJECT_INSTALL~,
 ~EESSI_SITE_INSTALL~, or ~EESSI_CVMFS_INSTALL~ in
-~[targets.easybuild.environment]~.
+~[targets.easybuild.environment]~. A present empty value counts as set.
 
 Compiled modules, build trees, and temporary files belong to one runtime ABI.
 Do not reuse a host or different-image install prefix inside a container.

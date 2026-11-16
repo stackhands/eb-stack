@@ -442,9 +442,14 @@ fn public_eessi_extend_target_routes_through_eessi_container() {
     let target = &targets[0];
     assert_eq!(target.name, "eessi-extend-user");
     assert!(matches!(target.runtime, TargetRuntime::Eessi { .. }));
+    assert_eq!(target.easybuild.command, "/usr/local/bin/eb-local");
     assert_eq!(
-        target.easybuild.command,
-        "/usr/local/bin/eessi-extend-eb.sh"
+        target
+            .easybuild
+            .environment
+            .get("EB_LOCAL_EESSI_EXTEND")
+            .map(String::as_str),
+        Some("1")
     );
     assert_eq!(
         target
@@ -459,7 +464,9 @@ fn public_eessi_extend_target_routes_through_eessi_container() {
     let joined = command.args.join(" ");
     assert!(joined.contains("--mode exec"), "{joined}");
     assert!(joined.contains("--access ro"), "{joined}");
-    assert!(joined.contains("eessi-extend-eb.sh"), "{joined}");
+    assert!(joined.contains("/usr/local/bin/eb-local"), "{joined}");
+    assert!(joined.contains("EB_LOCAL_EESSI_EXTEND=1"), "{joined}");
+    assert!(!joined.contains("eessi-extend-eb.sh"), "{joined}");
     assert!(joined.contains("EESSI_USER_INSTALL="), "{joined}");
     assert!(joined.contains("art.eb"), "{joined}");
 }
@@ -520,7 +527,7 @@ kind = "direct"
 kind = "host"
 
 [targets.easybuild]
-command = "eessi-extend-eb.sh"
+command = "eb-local"
 robot_paths = []
 work_root = "/work/campaign"
 tmp_root = "/work/tmp"

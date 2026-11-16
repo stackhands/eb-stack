@@ -1,0 +1,1 @@
+The EESSI target runs `eb-local` with `EB_LOCAL_EESSI_EXTEND=1` instead of `scripts/eessi-extend-eb.sh`, and the script is removed. eb-stack does not build eb-local; the container bind-mounts the binary the operator installed. A present empty `EESSI_*_INSTALL` still counts as that mode, which `eb-local` enforces.
