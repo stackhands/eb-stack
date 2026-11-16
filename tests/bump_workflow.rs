@@ -320,6 +320,72 @@ fn easybuild_bump_makes_cross_generation_stack_selection_explicit() {
 }
 
 #[test]
+fn a_version_only_pin_outside_the_hierarchy_says_where_the_package_is() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let source = temp.path().join("Alpha-1.0-foss-2025b.eb");
+    let robot = temp.path().join("robot");
+    fs::create_dir_all(&robot).expect("robot directory");
+    fs::write(
+        &source,
+        "easyblock = 'ConfigureMake'\nname = 'Alpha'\nversion = '1.0'\n\
+         homepage = 'https://example.invalid/'\ndescription = 'Synthetic package'\n\
+         toolchain = {'name': 'foss', 'version': '2025b'}\n\
+         sources = ['alpha-1.0.tar.gz']\n\
+         checksums = ['aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa']\n\
+         moduleclass = 'tools'\n",
+    )
+    .expect("source recipe");
+    fs::write(
+        robot.join("PinnedLib-1.2-gfbf-2024a.eb"),
+        "easyblock = 'ConfigureMake'\nname = 'PinnedLib'\nversion = '1.2'\n\
+         homepage = 'https://example.invalid/'\ndescription = 'Pinned candidate'\n\
+         toolchain = {'name': 'gfbf', 'version': '2024a'}\n\
+         sources = []\nchecksums = []\nmoduleclass = 'lib'\n",
+    )
+    .expect("pinned candidate");
+    let toolchain = Toolchain {
+        name: "foss".into(),
+        version: "2026.1".into(),
+    };
+
+    let error = plan_package_bump(&BumpPackageRequest {
+        source,
+        toolchain: toolchain.clone(),
+        version: None,
+        source_checksum: None,
+        easyconfig_roots: vec![robot],
+        hierarchy_fixture: None,
+        overrides: HashMap::new(),
+        stack_policy: StackPolicy {
+            schema_version: STACK_POLICY_SCHEMA_VERSION,
+            name: "site".into(),
+            toolchain,
+            pins: vec![StackPin {
+                name: "PinnedLib".into(),
+                version_requirement: "==1.2".into(),
+                toolchain: None,
+                versionsuffix: None,
+                mode: StackPinMode::Locked,
+                source: Some("site stack".into()),
+            }],
+            exclusions: Vec::new(),
+        },
+        strict_patches: false,
+        package_layers: Vec::new(),
+        foreign_sources: Vec::new(),
+    })
+    .expect_err("a version-only pin stays inside the hierarchy");
+    let message = format!("{error:#}");
+    assert!(!message.contains("unknown package"), "{message}");
+    assert!(
+        message.contains("stack policy pin PinnedLib ==1.2")
+            && message.contains("foss-2026.1 hierarchy")
+            && message.contains("on gfbf-2024a"),
+        "name the pin, the hierarchy, and where the tree has it: {message}"
+    );
+}
+
+#[test]
 fn version_bump_adopts_the_same_version_siblings_patch_block() {
     let temp = tempfile::tempdir().expect("tempdir");
     let source = temp.path().join("Beta-1.0-GCCcore-14.3.0.eb");

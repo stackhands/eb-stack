@@ -844,6 +844,20 @@ pub fn solve_with_baseline_source(
             roots_disp
         );
     }
+    let hierarchy = crate::hierarchy::ToolchainHierarchy {
+        parent: policy.toolchain.clone(),
+        members: hierarchy_members.clone(),
+    };
+    for pin in &policy.pins {
+        if let Some(found) = crate::hierarchy::name_outside_hierarchy(
+            &pin.name,
+            &hierarchy,
+            &universe_cands,
+            &expanded_all,
+        ) {
+            bail!("pin {} {}: {found}", pin.name, pin.version_req);
+        }
+    }
     let universe = Universe {
         toolchain: policy.toolchain.clone(),
         generation_label: Some(format!(

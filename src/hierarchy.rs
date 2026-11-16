@@ -253,6 +253,47 @@ pub fn root_missing_from_generation(
     Some(render_missing_root(name, toolchain, all))
 }
 
+/// Where the trees carry a name the searched hierarchy does not.
+///
+/// `searched` is the universe a solve reads and `all` every candidate the
+/// trees parsed. A name that `searched` has, or that no tree has, is `None`:
+/// the solver's own message is then the accurate one.
+pub fn name_outside_hierarchy(
+    name: &str,
+    hierarchy: &ToolchainHierarchy,
+    searched: &[Candidate],
+    all: &[Candidate],
+) -> Option<String> {
+    const SHOWN: usize = 6;
+    if searched.iter().any(|candidate| candidate.name == name) {
+        return None;
+    }
+    let mut toolchains: Vec<String> = all
+        .iter()
+        .filter(|candidate| candidate.name == name)
+        .map(|candidate| candidate.toolchain.identity_label())
+        .collect();
+    if toolchains.is_empty() {
+        return None;
+    }
+    toolchains.sort();
+    toolchains.dedup();
+    let more = toolchains.len().saturating_sub(SHOWN);
+    toolchains.truncate(SHOWN);
+    let mut found = toolchains.join(", ");
+    if more > 0 {
+        found.push_str(&format!(", and {more} more"));
+    }
+    let parent = hierarchy.parent.identity_label();
+    let levels = match hierarchy.member_labels() {
+        labels if labels.is_empty() => parent.clone(),
+        labels => labels.join(", "),
+    };
+    Some(format!(
+        "{name} has no easyconfig in the {parent} hierarchy ({levels}); the trees have it on {found}"
+    ))
+}
+
 fn version_and_suffix(candidate: &Candidate) -> String {
     format!(
         "{}{}",

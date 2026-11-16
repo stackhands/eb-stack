@@ -2,8 +2,8 @@
 
 use crate::domain::{Candidate, DepReq, Policy, Toolchain};
 use crate::hierarchy::{
-    filter_candidates_in_hierarchy, hierarchy_for_with_tree, is_system_toolchain, toolchains_match,
-    ToolchainHierarchy,
+    filter_candidates_in_hierarchy, hierarchy_for_with_tree, is_system_toolchain,
+    name_outside_hierarchy, toolchains_match, ToolchainHierarchy,
 };
 use crate::package::{
     materialize_profile, DependencyRole, LockedDependency, PackagePlan, ProfileEnvironment,
@@ -363,6 +363,11 @@ pub fn solve_package_profile_with_hierarchy(
         require_upgrade: Vec::new(),
         criteria: Vec::new(),
     };
+    if let Some(message) =
+        stack_policy_name_outside_hierarchy(stack_policy, &universe, candidates, &hierarchy)
+    {
+        return Err(ProfileSolveError::Resolve(message));
+    }
     let result = solve_curated_with_stack_policy(&universe, &policy, None, stack_policy)
         .map_err(ProfileSolveError::Resolve)?;
 
@@ -507,6 +512,43 @@ fn admit_named_dependency_toolchains(
             admitted.push(candidate.clone());
         }
     }
+}
+
+/// A stack-policy pin or exclusion on a name the solve's hierarchy does not
+/// carry, and where the trees have it. The solver can only call such a name
+/// unknown.
+fn stack_policy_name_outside_hierarchy(
+    stack_policy: &StackPolicy,
+    universe: &[Candidate],
+    candidates: &[Candidate],
+    hierarchy: &ToolchainHierarchy,
+) -> Option<String> {
+    let pins = stack_policy
+        .pins
+        .iter()
+        .map(|pin| ("pin", &pin.name, &pin.version_requirement));
+    let exclusions = stack_policy
+        .exclusions
+        .iter()
+        .map(|exclusion| ("exclusion", &exclusion.name, &exclusion.version_requirement));
+    let mut everywhere = None;
+    for (kind, name, requirement) in pins.chain(exclusions) {
+        if universe.iter().any(|candidate| &candidate.name == name) {
+            continue;
+        }
+        let everywhere = everywhere.get_or_insert_with(|| expand_extension_provides(candidates));
+        if let Some(found) = name_outside_hierarchy(name, hierarchy, universe, everywhere) {
+            let advice = if kind == "pin" {
+                ". A pin without a toolchain applies inside that hierarchy"
+            } else {
+                ""
+            };
+            return Some(format!(
+                "stack policy {kind} {name} {requirement}: {found}{advice}"
+            ));
+        }
+    }
+    None
 }
 
 fn admit_stack_pin_closures(
