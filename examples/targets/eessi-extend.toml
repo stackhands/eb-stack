@@ -4,12 +4,20 @@ schema_version = 1
 # Plan on the host (`package plan --format pypi|cran`). This target is the
 # install backend: the host eb-stack binary does not need to run in Debian 12.
 #
-# Set exactly one prefix before campaign run, via environment here:
+# Set exactly one prefix before campaign run, via environment here.
+# A present empty value counts as set, as it does for EESSI-extend:
 #   EESSI_USER_INSTALL (default below)
 #   EESSI_PROJECT_INSTALL
 #   EESSI_SITE_INSTALL=1  plus EESSI_SITE_SOFTWARE_PREFIX in the site layer
+#   EESSI_CVMFS_INSTALL
 #
-# Bind the planned bundle and this install prefix into the container.
+# Bind eb-local, the planned bundle and this install prefix into the
+# container. eb-stack does not build eb-local; the operator installs it.
+# EB_LOCAL_EESSI_EXTEND=1 makes that one program load EESSI-extend and
+# exec eb, because a target command is a single executable. That mode
+# needs eb-local 2.5.0 or later. 2.4.0 and older ignore the variable and
+# answer --version themselves, so `eb-stack target doctor` fails the
+# target until eb-local is upgraded.
 
 [[targets]]
 name = "eessi-extend-user"
@@ -26,17 +34,18 @@ command = "eessi_container.sh"
 storage = "/tmp/eb-stack-eessi/storage"
 access = "ro"
 extra_bind_paths = [
-  "scripts/eessi-extend-eb.sh:/usr/local/bin/eessi-extend-eb.sh:ro",
+  "/usr/local/bin/eb-local:/usr/local/bin/eb-local:ro",
   "/tmp/eb-stack-eessi:/tmp/eb-stack-eessi:rw",
 ]
 
 [targets.easybuild]
-command = "/usr/local/bin/eessi-extend-eb.sh"
+command = "/usr/local/bin/eb-local"
 robot_paths = []
 work_root = "/tmp/eb-stack-eessi/work"
 tmp_root = "/tmp/eb-stack-eessi/tmp"
 
 [targets.easybuild.environment]
+EB_LOCAL_EESSI_EXTEND = "1"
 EESSI_VERSION = "2026.06"
 EESSI_USER_INSTALL = "/tmp/eb-stack-eessi/install"
 WORKING_DIR = "/tmp"
