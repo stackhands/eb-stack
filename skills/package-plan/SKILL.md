@@ -11,9 +11,9 @@ Run this from the repository root. The fixture robot is enough. A full easybuild
 eb-stack package plan \
   --source fixtures/foreign_ingest/pypi_bs4/pypi.json \
   --format pypi \
-  --toolchain foss/2026.1 \
+  --toolchain GCCcore/15.2.0 \
   --easyconfigs fixtures/foreign_ingest/pypi_bs4/robot \
-  --stack-policy examples/stacks/eessi-python-extras.toml \
+  --stack-policy examples/stacks/eessi-python-gcccore.toml \
   --out-dir /tmp/bs4-plan
 ```
 
@@ -23,7 +23,7 @@ The command prints the paths it wrote. These files must exist:
 test -s /tmp/bs4-plan/package.plan.json
 test -s /tmp/bs4-plan/package.sbom.cdx.json
 test -s /tmp/bs4-plan/locks/default.lock.json
-test -s /tmp/bs4-plan/easyconfigs/b/beautifulsoup4/beautifulsoup4-4.12.3-foss-2026.1.eb
+test -s /tmp/bs4-plan/easyconfigs/b/beautifulsoup4/beautifulsoup4-4.12.3-GCCcore-15.2.0.eb
 ```
 
 `--easyconfigs` and `--stack-policy` are required. Repeat `--easyconfigs` for an overlay. Later trees win on one name, version, toolchain, and versionsuffix. `--toolchain` is `name/version`. `--toolchain-version` alone defaults the name to `foss`. An empty `--toolchain-name` is rejected. `--source-checksum` is repeatable, once per source artifact, when the recipe has no digest.

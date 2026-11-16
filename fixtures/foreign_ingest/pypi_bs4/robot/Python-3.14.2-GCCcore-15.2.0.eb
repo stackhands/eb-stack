@@ -1,9 +1,9 @@
 name = 'Python'
-version = '3.13.1'
+version = '3.14.2'
 homepage = 'https://python.org'
 description = "Test Python provider"
-toolchain = {'name': 'foss', 'version': '2026.1'}
+toolchain = {'name': 'GCCcore', 'version': '15.2.0'}
 dependencies = [
-    ('binutils', '2.42'),
+    ('binutils', '2.45'),
 ]
 moduleclass = 'lang'

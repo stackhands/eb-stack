@@ -33,7 +33,7 @@ Inspect does not need a robot. Plan does.
 eb-stack package inspect \
   --source fixtures/foreign_ingest/pypi_bs4/pypi.json \
   --format pypi \
-  --toolchain foss/2026.1 \
+  --toolchain GCCcore/15.2.0 \
   --out-dir /tmp/bs4-inspect
 #+end_src
 
@@ -48,19 +48,28 @@ package; later specs are additional run dependencies.
 Source ~env.sh~ from ~scripts/fetch-upstream-trees.sh~ first.
 ~EB_EASYCONFIGS~ is the develop easyconfigs tree.
 
+Pick the toolchain the way EESSI does. A pure-Python package goes on
+GCCcore, where EESSI 2026.06 installs Python, ~Python-bundle-PyPI~ and
+~BeautifulSoup~, so the bs4 plan uses ~GCCcore/15.2.0~ and
+~examples/stacks/eessi-python-gcccore.toml~. A package that needs numpy
+needs ~SciPy-bundle~, which EESSI installs on ~gfbf/2026.1~; the numpy
+example below uses ~foss/2026.1~, which includes it, and
+~examples/stacks/eessi-python-extras.toml~. The policy's toolchain must
+be the plan's ~--toolchain~.
+
 #+begin_src bash
 eb-stack package plan \
   --source fixtures/foreign_ingest/pypi_bs4/pypi.json \
   --format pypi \
-  --toolchain foss/2026.1 \
+  --toolchain GCCcore/15.2.0 \
   --easyconfigs fixtures/foreign_ingest/pypi_bs4/robot \
-  --stack-policy examples/stacks/eessi-python-extras.toml \
+  --stack-policy examples/stacks/eessi-python-gcccore.toml \
   --out-dir /tmp/eb-stack/bundles/bs4
 #+end_src
 
 The lock collapses ~soupsieve~ to ~Python-bundle-PyPI~. The emitted
-recipe is ~PythonPackage~, depends on ~Python 3.13.1~ and
-~Python-bundle-PyPI 2025.04~, and has no ~exts_list~. The checksum is
+recipe is ~PythonPackage~, depends on ~Python 3.14.2~ and
+~Python-bundle-PyPI 2026.04~, and has no ~exts_list~. The checksum is
 the one in the fixture. The plan's ~easyblock~ stays ~PythonBundle~;
 that class is what a multi-package overlay emits. A ~PythonBundle~
 recipe is for a set installed together, not for a single package.

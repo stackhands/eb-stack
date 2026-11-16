@@ -1,0 +1,22 @@
+schema_version = 1
+name = "eessi-python-gcccore"
+
+[toolchain]
+name = "GCCcore"
+version = "15.2.0"
+
+# Pure-Python packages sit on GCCcore, beside Python and Python-bundle-PyPI.
+# A package that needs SciPy-bundle takes eessi-python-extras.toml instead.
+# Lock the Python providers to the versions the target EESSI tree actually
+# ships. Preferred pins may fall back; locked pins may not.
+# Fill versions from `module --terse avail Python Python-bundle-PyPI`.
+
+# [[pins]]
+# name = "Python"
+# version_requirement = "==3.14.2"
+# mode = "locked"
+#
+# [[pins]]
+# name = "Python-bundle-PyPI"
+# version_requirement = "==2026.04"
+# mode = "locked"
