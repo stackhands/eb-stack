@@ -4566,7 +4566,7 @@ pub fn lock_from_candidates(
         })
         .collect();
     packages.sort_by(|a, b| a.name.cmp(&b.name));
-    let ts = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    let ts = crate::domain::solver_timestamp();
     StackLock {
         schema_version: 1,
         toolchain,

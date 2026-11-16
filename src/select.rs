@@ -147,7 +147,7 @@ pub fn select_stack(
         }
     }
 
-    let ts = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    let ts = crate::domain::solver_timestamp();
     Ok(StackLock {
         schema_version: 1,
         toolchain: policy.toolchain.clone(),
