@@ -329,6 +329,149 @@ fn stack_gap_help_example_paths_exist() {
 }
 
 #[test]
+fn top_level_help_names_every_exit_status_the_reference_lists() {
+    let help = help_text(&[]);
+    let paragraph = help
+        .split("\n\n")
+        .find(|block| block.starts_with("Exit status"))
+        .expect("eb-stack --help states the exit status");
+    let named: Vec<&str> = paragraph.split(|c: char| !c.is_ascii_digit()).collect();
+    let reference = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/orgmode/reference/cli.org"),
+    )
+    .expect("read cli.org");
+    let codes: Vec<&str> = reference
+        .split_once("* Exit status")
+        .expect("cli.org has an exit status section")
+        .1
+        .lines()
+        .skip_while(|line| !line.starts_with('|'))
+        .take_while(|line| line.starts_with('|'))
+        .filter_map(|line| line.split('|').nth(1).map(str::trim))
+        .filter(|cell| !cell.is_empty() && cell.chars().all(|c| c.is_ascii_digit()))
+        .collect();
+    assert!(
+        codes.contains(&"78"),
+        "cli.org exit status table: {codes:?}"
+    );
+    for code in codes {
+        assert!(
+            named.contains(&code),
+            "eb-stack --help does not name exit status {code}:\n{paragraph}"
+        );
+    }
+}
+
+#[test]
+fn stack_admit_help_examples_read_the_scheduler_inside_the_lock() {
+    let text = help_text(&["stack".into(), "admit".into()]);
+    let examples = text
+        .split_once("Examples:")
+        .expect("stack admit help has an example")
+        .1;
+    assert!(
+        !examples.contains("$("),
+        "a stack admit --help example expands a command before the lock:\n{examples}"
+    );
+    assert!(
+        examples.contains("--lock ") && examples.contains("--live-jobs-cmd "),
+        "stack admit --help should show the scheduler read inside --lock:\n{examples}"
+    );
+}
+
+#[test]
+fn campaign_help_shows_how_to_start_a_campaign() {
+    let text = help_text(&["campaign".into()]);
+    let examples = text
+        .split_once("Examples:")
+        .expect("campaign help has an example")
+        .1;
+    assert!(
+        examples.contains("eb-stack campaign run "),
+        "campaign --help should show campaign run:\n{examples}"
+    );
+}
+
+#[test]
+fn stack_generation_help_maps_every_bundled_eessi_version() {
+    let help = help_text(&["stack".into(), "generation".into()]);
+    let mapping = help
+        .split("\n\n")
+        .find(|block| block.contains("data/eessi-generations.toml"))
+        .expect("stack generation --help names the table");
+    let table = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("data/eessi-generations.toml"),
+    )
+    .expect("read the bundled table");
+    let mut versions = 0;
+    let mut lines = table.lines();
+    while let Some(line) = lines.next() {
+        let Some(version) = line
+            .strip_prefix("eessi = \"")
+            .and_then(|rest| rest.strip_suffix('"'))
+        else {
+            continue;
+        };
+        let generations = lines
+            .next()
+            .and_then(|next| next.strip_prefix("generations = ["))
+            .expect("generations follow eessi");
+        assert!(
+            mapping.contains(&format!("{version} to ")),
+            "stack generation --help does not map EESSI {version}:\n{mapping}"
+        );
+        for generation in generations
+            .trim_end_matches(']')
+            .split(',')
+            .map(|generation| generation.trim().trim_matches('"'))
+        {
+            assert!(
+                mapping.contains(generation),
+                "stack generation --help does not name {generation} for {version}:\n{mapping}"
+            );
+        }
+        versions += 1;
+    }
+    assert!(versions >= 3, "read {versions} EESSI versions");
+}
+
+/// The lines clap prints under one long flag, joined.
+fn flag_description(help: &str, flag: &str) -> Option<String> {
+    let mut lines = help
+        .lines()
+        .skip_while(|line| line.trim_start().split(' ').next() != Some(flag));
+    lines.next()?;
+    Some(
+        lines
+            .take_while(|line| !line.trim_start().starts_with('-'))
+            .map(str::trim)
+            .collect::<Vec<_>>()
+            .join(" "),
+    )
+}
+
+#[test]
+fn every_installed_modulerc_help_says_a_module_tree_is_read() {
+    let mut checked = Vec::new();
+    for command in leaves() {
+        let help = help_text(&command);
+        let Some(description) = flag_description(&help, "--installed-modulerc") else {
+            continue;
+        };
+        assert!(
+            description.contains("module tree"),
+            "{} --installed-modulerc also reads a module tree:\n{description}",
+            command.join(" ")
+        );
+        checked.push(command.join(" "));
+    }
+    assert!(
+        checked.len() >= 3,
+        "commands with --installed-modulerc: {checked:?}"
+    );
+}
+
+#[test]
 fn every_command_help_has_an_example_and_describes_every_flag() {
     let commands = leaves();
     assert!(

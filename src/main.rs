@@ -38,7 +38,7 @@ fn is_usage(error: &anyhow::Error) -> bool {
     name = "eb-stack",
     version,
     about = "Canonical SBOM, build-manifest, Resolvo, EasyBuild, and campaign workflows",
-    after_long_help = "Exit status is 0 when the command finished, 1 when the work failed, and 2 when the command line was rejected.\n\nA directory of artifacts is --out-dir. A single output file is --out.\n\nExamples:\n  eb-stack package inspect --source recipe.yaml --format conda-forge --toolchain foss/2026.1 --out-dir bundle\n  eb-stack --help"
+    after_long_help = "Exit status is 0 when the command finished, 1 when the work failed, and 2 when the command line was rejected. `stack admit` exits 78 when it refuses the job.\n\nA directory of artifacts is --out-dir. A single output file is --out.\n\nExamples:\n  eb-stack package inspect --source recipe.yaml --format conda-forge --toolchain foss/2026.1 --out-dir bundle\n  eb-stack --help"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -80,7 +80,9 @@ enum Command {
         command: TargetCommand,
     },
     /// Run and inspect persisted build campaigns.
-    #[command(after_long_help = "Examples:\n  eb-stack campaign status --state campaign.json")]
+    #[command(
+        after_long_help = "Examples:\n  eb-stack campaign run --bundle bundle/ --config target.toml --target local --state campaign.json\n  eb-stack campaign status --state campaign.json"
+    )]
     Campaign {
         #[command(subcommand)]
         command: CampaignCommand,
@@ -1116,7 +1118,8 @@ struct BatchArgs {
     /// Installed modules, one `Name/VersionFull` per line.
     #[arg(long)]
     installed: PathBuf,
-    /// Modulerc file with `module_version` aliases. Repeatable.
+    /// Lmod `.modulerc.lua` file with `module_version` aliases, or a module
+    /// tree to scan for them. Repeatable.
     #[arg(long = "installed-modulerc")]
     installed_modulerc: Vec<PathBuf>,
     /// Open software-layer pull requests, `pr-overlap --pr` JSON. Repeatable.
@@ -1705,7 +1708,7 @@ enum StackCommand {
     /// reservation is never counted. Prints one JSON line. Exits 0 when
     /// admitted, 78 when refused.
     #[command(
-        after_long_help = "Examples:\n  eb-stack stack admit --quota-json quota.json --footprint 351000 --job 4411 --reservations reservations --live-jobs 4401,4402\n  mmlsquota-json | eb-stack stack admit --quota-json - --footprint 61000 --job 4412 --reservations reservations --live-jobs \"$(squeue --all -h -o %i -u jenkins | paste -sd,)\""
+        after_long_help = "Examples:\n  eb-stack stack admit --quota-json quota.json --footprint 351000 --job 4411 --reservations reservations --live-jobs 4401,4402\n  eb-stack stack admit --lock reservations/admission.lock --quota-cmd mmlsquota-json --footprint 61000 --job 4412 --reservations reservations --live-jobs-cmd 'squeue --all -h -o %i -u jenkins'"
     )]
     Admit(Box<AdmitArgs>),
     /// Refuse a plan an architecture cannot build, and flag shared entries
@@ -1816,9 +1819,10 @@ enum StackCommand {
     ///
     /// `data/eessi-generations.toml` maps each EESSI version to its
     /// generations: 2023.06 to 2022b, 2023a and 2023b, 2025.06 to 2024a,
-    /// 2025a and 2025b. The EESSI version comes from the easystack path. With
-    /// `--pr`, only the lines each pull request adds are checked, and the rest
-    /// of the file counts as already in the stack. Exits 1 on any finding.
+    /// 2025a and 2025b, and 2026.06 to 2026.1. The EESSI version comes from
+    /// the easystack path. With `--pr`, only the lines each pull request adds
+    /// are checked, and the rest of the file counts as already in the stack.
+    /// Exits 1 on any finding.
     #[command(
         after_long_help = "Examples:\n  eb-stack stack generation --easystack easystacks/software.eessi.io/2025.06/eessi-2025.06-eb-5.4.1-2025b.yml\n  eb-stack stack generation --pr pr-1472.json\n  eb-stack stack generation --pr pr.json --deployed easystacks/software.eessi.io/2025.06 --allow-versions CMake@2025b"
     )]
