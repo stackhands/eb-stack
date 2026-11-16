@@ -1,0 +1,1 @@
+A job `stack admit` refuses for want of inodes carries a `refusal`: the inodes it is short, then the `available`, `reserved`, `footprint` and `margin` that decided it. It was `null`, so only a failed quota or scheduler command said why.
