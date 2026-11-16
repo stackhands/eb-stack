@@ -155,6 +155,38 @@ fn wave_one_splits_into_three_shards_and_a_prelude() {
 }
 
 #[test]
+fn a_short_force_line_rebuilds_its_module_before_the_line_that_needs_it() {
+    let tmp = tempfile::tempdir().unwrap();
+    let out = tmp.path().join("shards");
+    let run = shard("force.list", &out, &["--shards", "4"]);
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    // CMake is installed, but `-f` rebuilds it, so Szip's closure has it and
+    // the two lines share a shard with CMake first, as for `--force`.
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout),
+        "shards=1 prelude=0 lines=2\n"
+    );
+    assert_eq!(
+        listing(&out),
+        ["plan.json", "prelude.list", "shard-01.list"]
+    );
+    assert_eq!(
+        read(out.join("shard-01.list")),
+        "CMake-3.31.8-GCCcore-15.2.0.eb -f\nSzip-2.1.1-GCCcore-15.2.0.eb\n"
+    );
+    let plan: Value = serde_json::from_str(&read(out.join("plan.json"))).unwrap();
+    assert_eq!(
+        plan["lines"][0]["closure"],
+        serde_json::json!(["CMake/3.31.8-GCCcore-15.2.0"])
+    );
+    assert_eq!(plan["shards"][0]["weight"], 2);
+}
+
+#[test]
 fn weights_balance_the_shards_by_time() {
     let tmp = tempfile::tempdir().unwrap();
     let out = tmp.path().join("shards");

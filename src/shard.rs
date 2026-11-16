@@ -540,6 +540,13 @@ mod tests {
     }
 
     #[test]
+    fn rebuild_force_and_its_short_form_force_a_line() {
+        let lines = parse_lines("A-1.eb --rebuild\nB-2.eb --force\nC-3.eb -f\nD-4.eb --hooks=-f\n");
+        let forced: Vec<bool> = lines.iter().map(|line| line.forced).collect();
+        assert_eq!(forced, [true, true, true, false]);
+    }
+
+    #[test]
     fn from_pr_and_from_commit_lines_are_fetched() {
         let lines = parse_lines(
             "A-1.eb --from-pr=27108 --include-systems=x\nB-2.eb --from-commit=0123abcd\nC-3.eb --include-easyblocks-from-pr=4241\n",
