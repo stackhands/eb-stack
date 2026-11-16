@@ -2444,6 +2444,13 @@ target toolchain hierarchy from the robot tree, and asks Resolvo for a jointly
 feasible dependency selection. Existing robot artifacts keep independent
 build-tool scopes, matching EasyBuild's installed-module model.
 
+A dependency's versionsuffix, as in `('HDF5', '1.14.2', '-mpi')`, holds
+wherever the robot tree has a build with that suffix the solve can take,
+so the bump does not trade `-mpi` for `-serial`. Only when the target has
+no such build does the solve take another suffix: a library's
+`-CUDA-12.9.1` build becomes its `-CUDA-13.3.0` build when the target
+generation carries only that one.
+
 The output is:
 
 ```text
