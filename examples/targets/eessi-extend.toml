@@ -37,7 +37,7 @@ work_root = "/tmp/eb-stack-eessi/work"
 tmp_root = "/tmp/eb-stack-eessi/tmp"
 
 [targets.easybuild.environment]
-EESSI_VERSION = "2025.06"
+EESSI_VERSION = "2026.06"
 EESSI_USER_INSTALL = "/tmp/eb-stack-eessi/install"
 WORKING_DIR = "/tmp"
 EASYBUILD_SOURCEPATH = "/tmp/eb-stack-eessi/sources"

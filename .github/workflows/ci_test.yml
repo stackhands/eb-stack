@@ -189,6 +189,7 @@ jobs:
             --test eb_robot_paths \
             --test easyblock_layers \
             --test easyblock_owed \
+            --test eessi_extend_eb_script \
             --test extension_provides \
             --test family_site_layer \
             --test fetch_prs_script \
