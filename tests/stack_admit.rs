@@ -214,7 +214,7 @@ fn footprints_take_the_ledger_peak_then_the_table_then_the_classes() {
             "ts": "2026-11-03T10:00:00Z",
             "actor": "jenkins/run/1",
             "stack": "2025",
-            "target": "x86_64/amd/genoa",
+            "target": "x86_64/amd/zen4",
             "module": module,
             "location": format!("/sw/{module}"),
             "action": "install",
