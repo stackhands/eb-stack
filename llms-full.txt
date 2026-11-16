@@ -9906,7 +9906,9 @@ on the host: the host `eb-stack` binary need not run in the
 Debian 12 image. The EasyBuild command is `eb-local` with
 `EB_LOCAL_EESSI_EXTEND=1`: that sources the European Environment for Scientific Software Installations (EESSI) init script, loads
 `EESSI-extend`, and execs `eb`. Bind the `eb-local` binary into the container;
-eb-stack does not build it. See `examples/targets/eessi-extend.toml`.
+eb-stack does not build it. That mode needs eb-local 2.5.0 or later: 2.4.0
+and older ignore `EB_LOCAL_EESSI_EXTEND` and answer `--version` themselves,
+and `target doctor` fails the target. See `examples/targets/eessi-extend.toml`.
 Set exactly one of `EESSI_USER_INSTALL`, `EESSI_PROJECT_INSTALL`,
 `EESSI_SITE_INSTALL`, or `EESSI_CVMFS_INSTALL` in
 `[targets.easybuild.environment]`. A present empty value counts as set.

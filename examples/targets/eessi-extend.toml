@@ -14,7 +14,10 @@ schema_version = 1
 # Bind eb-local, the planned bundle and this install prefix into the
 # container. eb-stack does not build eb-local; the operator installs it.
 # EB_LOCAL_EESSI_EXTEND=1 makes that one program load EESSI-extend and
-# exec eb, because a target command is a single executable.
+# exec eb, because a target command is a single executable. That mode
+# needs eb-local 2.5.0 or later. 2.4.0 and older ignore the variable and
+# answer --version themselves, so `eb-stack target doctor` fails the
+# target until eb-local is upgraded.
 
 [[targets]]
 name = "eessi-extend-user"
