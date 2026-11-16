@@ -1,8 +1,9 @@
-//! The tutorial, how-tos, reference, and explanation pages are commands
-//! a checkout can run.
+//! The get-started page, the tutorial, how-tos, reference, and explanation
+//! pages are commands a checkout can run.
 //!
 //! Bash blocks must not point at a path this repository does not have.
-//! The report commands are executed, and the page must quote their output.
+//! The report commands and the get-started blocks are executed, and the
+//! page must quote their output.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -12,7 +13,10 @@ fn root() -> PathBuf {
 }
 
 fn org_files() -> Vec<PathBuf> {
-    let mut files = vec![root().join("docs/orgmode/tutorial.org")];
+    let mut files = vec![
+        root().join("docs/orgmode/get-started.org"),
+        root().join("docs/orgmode/tutorial.org"),
+    ];
     for dir in ["howto", "reference", "explanation"] {
         let path = root().join("docs/orgmode").join(dir);
         let mut names: Vec<_> = std::fs::read_dir(&path)
@@ -27,11 +31,21 @@ fn org_files() -> Vec<PathBuf> {
 }
 
 fn bash_blocks(text: &str) -> Vec<String> {
+    org_blocks(text, "#+begin_src bash\n", "#+end_src")
+}
+
+fn example_blocks(text: &str) -> Vec<String> {
+    org_blocks(text, "#+begin_example\n", "#+end_example")
+}
+
+fn org_blocks(text: &str, open: &str, close: &str) -> Vec<String> {
     let mut blocks = Vec::new();
     let mut rest = text;
-    while let Some(start) = rest.find("#+begin_src bash\n") {
-        rest = &rest[start + "#+begin_src bash\n".len()..];
-        let end = rest.find("#+end_src").expect("bash block closed");
+    while let Some(start) = rest.find(open) {
+        rest = &rest[start + open.len()..];
+        let end = rest
+            .find(close)
+            .unwrap_or_else(|| panic!("{close} missing"));
         blocks.push(rest[..end].to_string());
         rest = &rest[end..];
     }
@@ -92,6 +106,48 @@ fn howto_bash_blocks_name_files_in_this_checkout() {
             }
         }
     }
+}
+
+#[test]
+fn get_started_blocks_print_what_the_page_quotes() {
+    let page = std::fs::read_to_string(root().join("docs/orgmode/get-started.org")).unwrap();
+    let commands = bash_blocks(&page);
+    let quoted = example_blocks(&page);
+    assert_eq!(commands.len(), quoted.len(), "one quoted output per block");
+    // The page writes under /tmp; each run gets its own directory instead.
+    let tmp = tempfile::tempdir().expect("temp");
+    let scratch = format!("{}/", tmp.path().display());
+    let bin = Path::new(env!("CARGO_BIN_EXE_eb-stack")).parent().unwrap();
+    let path = format!(
+        "{}:{}",
+        bin.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    for (command, expected) in commands.iter().zip(&quoted) {
+        let output = Command::new("bash")
+            .current_dir(root())
+            .env("PATH", &path)
+            .args(["-euo", "pipefail", "-c"])
+            .arg(command.replace("/tmp/", &scratch))
+            .output()
+            .expect("spawn bash");
+        let stdout = String::from_utf8_lossy(&output.stdout).replace(&scratch, "/tmp/");
+        assert_eq!(
+            &stdout,
+            expected,
+            "{command}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let status = if command.contains("eb-stack stack admit") {
+            78
+        } else {
+            0
+        };
+        assert_eq!(output.status.code(), Some(status), "{command}");
+    }
+    assert!(page.contains("The exit status is 78."));
+    let reservations = tmp.path().join("eb-stack-docs/admit-no");
+    assert_eq!(std::fs::read_dir(reservations).unwrap().count(), 0);
 }
 
 #[test]
