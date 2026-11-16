@@ -239,7 +239,10 @@ fn assert_eessi_cargo_isolation(text: &str) {
             && text.contains("${EESSI_EPREFIX:-")
             && text.contains("compat/linux/${_arch}}/usr/bin")
             && text.contains("link-arg=-B")
-            && text.contains("LINKER=${CC:-gcc}")
+            && text.contains("export LINKER=\"$CC\"")
+            && text.contains("tr -cd")
+            && !text.contains("LINKER=${CC:-gcc}")
+            && !text.contains("echo ${LIBRARY_PATH")
             && !text.contains("X86_64"),
         "cargo on EESSI must share one host-derived isolation prelude:\n{text}"
     );
