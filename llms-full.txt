@@ -4588,6 +4588,12 @@ A toolchain whose version is the generation counts as on it, so
 generation in `data/eessi-generations.toml`, such as
 `llvm-compilers-21.1.8`.
 
+When the newest version has several builds, the bump source is one on a
+toolchain family the generation uses, `foss` for `foss-2026.1`, and of
+those the one on the newest toolchain generation. QuantumESPRESSO 7.5 is
+bumped from `foss-2025b`, not from `NVHPC-25.3-CUDA-12.8.0` or
+`foss-2025a`.
+
 # Capture the live inventories
 
 The helper uses the shell's `module` function.
@@ -7490,7 +7496,9 @@ toolchain whose version is that generation, or on the system toolchain),
 `open-easyconfigs` (an `--open-easyconfigs` pull request adds a recipe at
 that generation; the match is the filename, and a toolchain version equal
 to `--generation` counts), or `no-recipe` (the newest easyconfig on any
-toolchain is named as the bump source). `--eessi-version` keeps
+toolchain is named as the bump source; between builds of that version, one
+on a toolchain family of the generation comes first, then the one on the
+newest toolchain generation). `--eessi-version` keeps
 `--open-layer` easystacks of that version; without it every easystack
 version counts. The command writes `gap.tsv`, one TSV per
 route (`site-only.tsv` for `excluded`, `bump.tsv` for `no-recipe`, and
