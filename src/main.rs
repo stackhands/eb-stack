@@ -3318,16 +3318,10 @@ fn run_stack(command: StackCommand) -> Result<()> {
                     // One file per invocation. Two solves for the same
                     // toolchain must not read each other's roots, including a
                     // second solve in this process while the first still reads.
-                    let stamp = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .map(|duration| duration.as_nanos())
-                        .unwrap_or(0);
-                    written_policy = std::env::temp_dir().join(format!(
-                        "eb-stack-policy-{}-{}-{}-{stamp}.json",
-                        name,
-                        version,
-                        std::process::id()
-                    ));
+                    written_policy = eb_stack::workspace_fs::exclusive_temp_path(&format!(
+                        "eb-stack-policy-{name}-{version}"
+                    ))
+                    .context("create generated stack policy")?;
                     std::fs::write(&written_policy, serde_json::to_vec_pretty(&policy)?)?;
                     written_policy
                 }

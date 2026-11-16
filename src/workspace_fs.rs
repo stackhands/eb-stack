@@ -990,12 +990,61 @@ fn lexical_normalize(path: &Path) -> PathBuf {
     out
 }
 
+/// A new empty file under the temporary directory.
+///
+/// The name is not a function of the process id alone, so two calls in one
+/// process do not share a file. `create_new` refuses a path that already
+/// exists, including a symlink planted in a shared temporary directory.
+pub fn exclusive_temp_path(prefix: &str) -> std::io::Result<PathBuf> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+    let base = std::env::temp_dir();
+    for _ in 0..32 {
+        let sequence = SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_nanos())
+            .unwrap_or(0);
+        let path = base.join(format!(
+            "{prefix}-{}-{nanos}-{sequence}",
+            std::process::id()
+        ));
+        match OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(_) => return Ok(path),
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(err) => return Err(err),
+        }
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        format!("could not create a temporary file under {}", base.display()),
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::sync::Mutex;
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn exclusive_temp_paths_are_distinct_files() {
+        let first = exclusive_temp_path("eb-stack-policy-foss-2026.1").expect("first");
+        let second = exclusive_temp_path("eb-stack-policy-foss-2026.1").expect("second");
+        assert_ne!(first, second);
+        std::fs::write(&first, b"roots-a").expect("write first");
+        std::fs::write(&second, b"roots-b").expect("write second");
+        assert_eq!(std::fs::read(&first).expect("read first"), b"roots-a");
+        let predictable = std::env::temp_dir().join(format!(
+            "eb-stack-policy-foss-2026.1-{}.json",
+            std::process::id()
+        ));
+        assert_ne!(first, predictable);
+        assert_ne!(second, predictable);
+        let _ = std::fs::remove_file(&first);
+        let _ = std::fs::remove_file(&second);
+    }
 
     fn with_env_root<T>(root: &Path, body: impl FnOnce() -> T) -> T {
         let _guard = ENV_LOCK.lock().expect("workspace env lock");
