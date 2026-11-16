@@ -1,0 +1,1 @@
+The `package plan` residuals for an inferred moduleclass and for a dropped build requirement, and the source finding for a tree that declares no version, read as one sentence instead of carrying a run of spaces where the source line was wrapped.

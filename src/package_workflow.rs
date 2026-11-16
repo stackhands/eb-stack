@@ -445,7 +445,8 @@ fn drop_unavailable_build_requirements(
             category: "build-requirement".into(),
             severity: ResidualSeverity::Judgment,
             summary: format!(
-                "{name} is a stated build requirement and this tree carries no module for it,                  so the recipe does not name it"
+                "{name} is a stated build requirement and this tree carries no module for it, \
+                 so the recipe does not name it"
             ),
             evidence: None,
             provenance: None,
@@ -581,7 +582,8 @@ fn note_inferred_moduleclass(plan: &mut PackagePlan) {
         category: "moduleclass".into(),
         severity: ResidualSeverity::Judgment,
         summary: format!(
-            "moduleclass {moduleclass} is inferred from the package's own classifiers;              this tree carries no other recipe for {} to take it from",
+            "moduleclass {moduleclass} is inferred from the package's own classifiers; \
+             this tree carries no other recipe for {} to take it from",
             plan.package.name
         ),
         evidence: None,
@@ -3101,5 +3103,46 @@ mod portable_path_tests {
             "SciPy-bundle.eb#ext:numpy"
         );
         assert_eq!(portable_easyconfig_path(""), "");
+    }
+}
+
+#[cfg(test)]
+mod residual_text_tests {
+    use super::{
+        add_gcccore_binutils, drop_unavailable_build_requirements, inspect_new_package,
+        note_inferred_moduleclass, ForeignFormat,
+    };
+    use crate::domain::Toolchain;
+    use std::path::Path;
+
+    #[test]
+    fn residual_summaries_read_as_one_sentence() {
+        let source = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("fixtures/foreign_ingest/pypi_bs4/pypi.json");
+        let toolchain = Toolchain {
+            name: "GCCcore".into(),
+            version: "15.2.0".into(),
+        };
+        let (mut plan, _) =
+            inspect_new_package(&source, Some(ForeignFormat::Pypi), &toolchain, &[])
+                .expect("inspect the PyPI fixture");
+        plan.residuals.clear();
+        note_inferred_moduleclass(&mut plan);
+        add_gcccore_binutils(&mut plan);
+        drop_unavailable_build_requirements(&mut plan, &[]);
+        let summaries: Vec<&str> = plan
+            .residuals
+            .iter()
+            .map(|residual| residual.summary.as_str())
+            .collect();
+        assert_eq!(
+            summaries,
+            [
+                "moduleclass tools is inferred from the package's own classifiers; \
+                 this tree carries no other recipe for beautifulsoup4 to take it from",
+                "binutils is a stated build requirement and this tree carries no module \
+                 for it, so the recipe does not name it",
+            ]
+        );
     }
 }
