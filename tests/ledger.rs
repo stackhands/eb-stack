@@ -243,7 +243,7 @@ fn append_and_verify_round_trip() {
         "PETSc",
     ]));
     let rows = show.lines().collect::<Vec<_>>();
-    assert_eq!(rows[0], "index\tts\taction\ttarget\tmodule\tactor");
+    assert_eq!(rows[0], "index\tts\taction\tstage\ttarget\tmodule\tactor");
     assert!(rows[1].starts_with("2\t"), "newest first: {show}");
     assert!(rows[2].starts_with("1\t"), "{show}");
     assert_eq!(rows[3], "2 of 3 records");
@@ -259,6 +259,44 @@ fn append_and_verify_round_trip() {
     let records: Value = serde_json::from_str(&exact).expect("show json");
     assert_eq!(records.as_array().unwrap().len(), 1);
     assert_eq!(records[0]["index"], 1);
+}
+
+#[test]
+fn show_tells_a_started_record_from_its_finished_one() {
+    let fixture = fixture();
+    for (n, stage) in ["started", "finished"].iter().enumerate() {
+        let mut value = record("pigz/2.8-GCCcore-15.2.0", "eb-staged-rebuild/7");
+        value["action"] = json!("rebuild-inplace");
+        value["stage"] = json!(stage);
+        append(&fixture, &value, &fixture.work.join(format!("head-{n}.json")));
+    }
+    append(
+        &fixture,
+        &record("zlib/1.3.1-GCCcore-15.2.0", "jenkins/run/7"),
+        &fixture.work.join("head-2.json"),
+    );
+    let show = ok(&eb(&["ledger", "show", "--log", s(&fixture.log)]));
+    let rows = show
+        .lines()
+        .map(|row| row.split('\t').collect::<Vec<_>>())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        rows[0],
+        ["index", "ts", "action", "stage", "target", "module", "actor"],
+        "{show}"
+    );
+    assert_eq!(rows[1][..4], ["2", "2026-11-03T10:00:00Z", "install", ""], "{show}");
+    assert_eq!(
+        rows[2][..4],
+        ["1", "2026-11-03T10:00:00Z", "rebuild-inplace", "finished"],
+        "{show}"
+    );
+    assert_eq!(
+        rows[3][..4],
+        ["0", "2026-11-03T10:00:00Z", "rebuild-inplace", "started"],
+        "{show}"
+    );
+    assert_eq!(rows[2][4..], rows[3][4..], "{show}");
 }
 
 #[test]
