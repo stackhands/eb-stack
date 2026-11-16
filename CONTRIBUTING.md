@@ -31,6 +31,9 @@ Build heavy work on a remote builder when local compiles thrash the machine.
   either a unit test or an integration test under `tests/`
 - Known maintainer-bump regressions live in `tests/reproduce_real_prs.rs` and
   must stay green (library **and** CLI auto-bump)
+- Every pull request adds a news fragment, `changelog.d/+<topic>.<type>.md`
+  with type `feature`, `bugfix`, `doc`, `removal` or `misc`;
+  `towncrier build --draft --version X.Y.Z` shows how it renders
 
 ## Documentation
 
@@ -84,7 +87,8 @@ Keep these in lockstep on every release:
 2. `pyproject.toml` `version` and `server.json` (both `version` fields)
 3. `CITATION.cff` `version`
 4. `docs/source/conf.py` `release`
-5. `CHANGELOG.md`: move Unreleased notes into `## X.Y.Z - YYYY-MM-DD`
+5. `CHANGELOG.md`: `towncrier build --version X.Y.Z` turns the fragments in
+   `changelog.d/` into `## X.Y.Z - YYYY-MM-DD`
 6. `CITATION.cff`: add `date-released` when the version is published
 7. The version a recorded command prints: `README.md`, this file,
    `docs/orgmode/index.org` (the install section), `docs/orgmode/install.org`,

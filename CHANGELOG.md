@@ -2,6 +2,8 @@
 
 All notable changes to this project are documented here.
 
+<!-- towncrier release notes start -->
+
 ## 0.7.4 - 2026-11-13
 
 ### Added
