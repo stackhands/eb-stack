@@ -52,6 +52,7 @@ const FORBIDDEN: &[&str] = &[
     "App-1.0",
     "eb-stack/scripts",
     "/shared/",
+    "Snel",
 ];
 
 #[test]

@@ -187,7 +187,7 @@ fn listing(dir: &Path) -> Vec<String> {
 
 fn root_line(f: &Fixture) -> String {
     format!(
-        "Root-1.0-GCCcore-15.2.0.eb --from-commit={} --include-systems=snel-zen2\nPlain-1.0-GCCcore-15.2.0.eb\n",
+        "Root-1.0-GCCcore-15.2.0.eb --from-commit={} --include-systems=site-zen2\nPlain-1.0-GCCcore-15.2.0.eb\n",
         f.sha
     )
 }
@@ -452,7 +452,7 @@ fn materialize_writes_the_selected_commit_files_and_executable_lists() {
     assert_eq!(
         local,
         format!(
-            "{}/Root-1.0-GCCcore-15.2.0.eb --include-systems=snel-zen2 --robot-paths={}:{}\n",
+            "{}/Root-1.0-GCCcore-15.2.0.eb --include-systems=site-zen2 --robot-paths={}:{}\n",
             abs.display(),
             f.robot.display(),
             abs.display()
