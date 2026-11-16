@@ -762,6 +762,36 @@ mod tests {
     }
 
     #[test]
+    fn the_newest_date_version_elsewhere_is_the_latest_release() {
+        let site = names_from_listing("LAMMPS/22Jul2025_update4-foss-2025b-kokkos\n");
+        let candidates = vec![
+            cand("LAMMPS", "29Aug2024", ("foss", "2023b"), Some("-kokkos")),
+            cand("LAMMPS", "28Oct2024", ("foss", "2024a"), Some("-kokkos")),
+            cand("LAMMPS", "22Jul2025", ("foss", "2024a"), Some("-kokkos")),
+            cand(
+                "LAMMPS",
+                "22Jul2025_update4",
+                ("foss", "2025b"),
+                Some("-kokkos"),
+            ),
+        ];
+        let rows = classify(
+            &site,
+            &BTreeSet::new(),
+            &candidates,
+            &BTreeMap::new(),
+            &BTreeSet::new(),
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+        );
+        assert_eq!(rows[0].route, "no-recipe");
+        assert_eq!(
+            rows[0].newest_elsewhere.as_deref(),
+            Some("LAMMPS-22Jul2025_update4-foss-2025b-kokkos.eb")
+        );
+    }
+
+    #[test]
     fn routes_each_site_package() {
         let site = names_from_listing("BLAST+/2.16.0-gompi-2024a\nLAMMPS\nJulia/1.10.4\nCP2K/2025.2-foss-2025a\nMATLAB/2025b\nzlib/1.3.1\n");
         let stack = names_from_listing("FFTW/3.3.10-gompi-2026.1\n");
