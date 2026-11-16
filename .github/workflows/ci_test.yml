@@ -343,7 +343,7 @@ jobs:
           fi
           "$BIN" --version
           "$BIN" stack capacity --snapshot tests/planning_capacity_fixtures/snapshot.json \
-            --partition local --target example/host --feature scratch-node \
+            --partition local --target example/host --feature local-disk \
             --cpus 4 --memory-mib 4096 --exclusive-node true --max-slots-per-node 1 \
             --generated-at 2026-01-01T12:00:10Z --max-age-seconds 60 \
             > target/portable-capacity-check.json

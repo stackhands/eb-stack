@@ -3,10 +3,10 @@
   "nodes": [
     {
       "active_features": [
-        "scratch-node"
+        "local-disk"
       ],
       "available_features": [
-        "scratch-node"
+        "local-disk"
       ],
       "cpu_load": 0.5,
       "cpus_allocatable": 16,

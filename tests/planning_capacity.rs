@@ -4,7 +4,7 @@ use sha2::{Digest, Sha256};
 
 fn node(name: &str, state: &[&str]) -> Value {
     json!({"name":name,"partitions":["compute"],"target":"example/host",
-           "available_features":["scratch-node"],"active_features":["scratch-node"],
+           "available_features":["local-disk"],"active_features":["local-disk"],
            "state_flags":state,"cpus_total":16,"cpus_allocatable":16,"cpus_allocated":0,
            "memory_mib_total":32768,"memory_mib_allocatable":32768,"memory_mib_allocated":0,
            "gpus_total":4,"gpus_allocatable":4,"gpus_allocated":0,"gpu_type":"example-gpu","cpu_load":90.0})
@@ -15,7 +15,7 @@ fn snapshot(nodes: Vec<Value>) -> Value {
 }
 fn request() -> CapacityRequest {
     serde_json::from_value(json!({"partition":"compute","host_target":"example/host",
-        "features":["scratch-node"],"cpus":8,"memory_mib":8192,"gpus":1,"gpu_type":"example-gpu","exclusive_node":false}))
+        "features":["local-disk"],"cpus":8,"memory_mib":8192,"gpus":1,"gpu_type":"example-gpu","exclusive_node":false}))
     .unwrap()
 }
 fn report(value: &Value) -> Value {
@@ -137,7 +137,7 @@ fn pending_demand_is_scoped_and_unknown_inputs_are_visible() {
     let mut value = snapshot(vec![node("node-a", &["IDLE"])]);
     value["pending_complete"] = json!(false);
     value["pending_jobs"] = json!([
-      {"id":"one","state":"PENDING","partitions":["compute"],"target":"example/host","features":["scratch-node"],"cpus":8,"memory_mib":8192,"gpus":1},
+      {"id":"one","state":"PENDING","partitions":["compute"],"target":"example/host","features":["local-disk"],"cpus":8,"memory_mib":8192,"gpus":1},
       {"id":"broad","state":"PENDING","partitions":["compute"],"target":null,"features":null,"cpus":4,"memory_mib":null,"gpus":0},
       {"id":"other","state":"PENDING","partitions":["elsewhere"],"target":"example/host","features":[],"cpus":900,"memory_mib":900,"gpus":9}]);
     let result = report(&value);
@@ -160,7 +160,7 @@ fn malformed_constraints_duplicates_and_inconsistent_resources_are_not_accepted(
     )
     .is_err());
     let mut req = request();
-    req.features.insert("scratch-node|other".into());
+    req.features.insert("local-disk|other".into());
     assert!(inspect(
         &serde_json::to_vec(&snapshot(vec![])).unwrap(),
         &req,
