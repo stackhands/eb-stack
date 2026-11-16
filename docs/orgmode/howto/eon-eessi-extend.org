@@ -57,7 +57,7 @@ the dependencies installed, a rebuild of eOn alone takes about 2.5 minutes.
 
 * Build eOn with the robot
 
-~scripts/eessi-extend-eb.sh~ sources EESSI's init, loads ~EESSI-extend~,
+~eb-local eb~ sources EESSI's init, loads ~EESSI-extend~,
 isolates Cargo from host wrappers, and execs ~eb~. On this checkout the
 build runs through the local Podman target, which invokes ~eb --robot~
 on the planned eOn bundle. The bundle path has to sit under

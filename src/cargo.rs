@@ -22,6 +22,13 @@ use std::collections::BTreeMap;
 /// target triple and compat arch come from the build host (`rustc -vV`,
 /// `uname -m`), not from a plan-time x86_64 literal. Cargo leftovers and
 /// mesonpy wraps that invoke cargo both emit this string.
+///
+/// The compat layer is `EESSI_EPREFIX`, which the EESSI init exports.
+/// Without it the path is rebuilt from `EESSI_CVMFS_REPO`, so a mirror keeps
+/// its own layer, and `EESSI_VERSION` (default 2026.06). The triple is
+/// best-effort: a missing or failing `rustc` leaves it empty, even under
+/// `pipefail`, instead of ending the chain before the compat `ld` is on
+/// `PATH`.
 pub fn eessi_cargo_host_isolation() -> &'static str {
     concat!(
         "unset RUSTC_WRAPPER CARGO_BUILD_RUSTC_WRAPPER RUSTC_WORKSPACE_WRAPPER RUSTFLAGS CARGO_ENCODED_RUSTFLAGS && ",
@@ -32,10 +39,7 @@ pub fn eessi_cargo_host_isolation() -> &'static str {
         // keep the value quoted, and only allow a triple that is a variable name.
         r#"if [ -z "${CC:-}" ]; then CC=gcc; fi && "#,
         r#"export LINKER="$CC" && "#,
-        // An ordinary recipe has no rustc. The host triple is best-effort,
-        // the same way scripts/eessi-extend-eb.sh discovers it, so a missing
-        // compiler does not drop the compat-layer linker from PATH.
-        r#"_triple=""; if _host=$(rustc -vV 2>/dev/null); then _triple=$(printf '%s\n' "$_host" | awk '/^host:/{print $2}'); fi && "#,
+        r#"_triple= && if _host=$(rustc -vV 2>/dev/null); then _triple=$(printf '%s\n' "$_host" | awk '/^host:/{print $2}'); fi && "#,
         r#"_triple_env=$(printf %s "$_triple" | tr "[:lower:]-" "[:upper:]_" | tr -cd 'A-Z0-9_') && "#,
         r#"if [ -n "$_triple_env" ]; then eval "export CARGO_TARGET_${_triple_env}_LINKER=\"\$CC\""; fi && "#,
         r#"_arch=$(uname -m) && "#,
@@ -509,6 +513,44 @@ pyo3 = "0.22"
             Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
         );
         assert!(!recipe.dependencies.iter().any(|dep| dep.name == "Python"));
+    }
+
+    #[test]
+    fn eessi_cargo_isolation_puts_the_compat_layer_on_path_without_rustc() {
+        // A shell function, not a file on PATH: it shadows any installed rustc,
+        // and this multi-threaded test binary writes no executable to run.
+        let script = format!(
+            "set -o pipefail; rustc() {{ return 127; }}; {}printf '%s\\n' \"$PATH\"\n",
+            eessi_cargo_host_isolation().replace("%(builddir)s", "/tmp")
+        );
+        let first_path_entry = |name: &str, value: &str| {
+            let out = std::process::Command::new("bash")
+                .arg("-c")
+                .arg(&script)
+                .env_remove("EESSI_EPREFIX")
+                .env_remove("EESSI_CVMFS_REPO")
+                .env_remove("EESSI_VERSION")
+                .env(name, value)
+                .output()
+                .expect("bash");
+            assert!(
+                out.status.success(),
+                "a failing rustc ended the prelude:\n{}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+            let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+            stdout.split(':').next().unwrap_or_default().to_string()
+        };
+        assert_eq!(
+            first_path_entry("EESSI_EPREFIX", "/compat"),
+            "/compat/usr/bin"
+        );
+        let mirror = first_path_entry("EESSI_CVMFS_REPO", "/mirror");
+        assert!(
+            mirror.starts_with("/mirror/versions/2026.06/compat/linux/")
+                && mirror.ends_with("/usr/bin"),
+            "{mirror}"
+        );
     }
 
     #[test]

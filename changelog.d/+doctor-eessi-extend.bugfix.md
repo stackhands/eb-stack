@@ -1,0 +1,1 @@
+`target doctor` passes the EasyBuild probe of a target with `EB_LOCAL_EESSI_EXTEND` on only when `--version` prints `This is EasyBuild`. eb-local 2.4.0 has no extend mode, answered `--version` itself and passed; the failed check now carries a `reason`.

@@ -5,6 +5,8 @@ use eb_stack::target::{
 use std::collections::BTreeMap;
 use std::process::Command;
 
+include!("support/write_executable.rs");
+
 #[test]
 fn layered_target_config_composes_ssh_slurm_container_and_easybuild() {
     let base = TargetConfigLayer::from_toml_str(
@@ -418,6 +420,125 @@ tmp_root = "/tmp"
     assert!(by_layer("runtime")["command"]["program"].is_string());
 }
 
+/// A stand-in EasyBuild command that prints `answer` and exits 0.
+fn version_stub(dir: &std::path::Path, answer: &str) -> String {
+    let path = dir.join("eb-local");
+    write_executable(&path, &format!("#!/bin/sh\nprintf '%s\\n' '{answer}'\n")).expect("stub");
+    path.to_str().expect("utf-8 path").into()
+}
+
+fn host_target(command: String, eessi_extend: Option<&str>) -> BuildTarget {
+    let mut environment = BTreeMap::new();
+    if let Some(value) = eessi_extend {
+        environment.insert("EB_LOCAL_EESSI_EXTEND".into(), value.into());
+    }
+    BuildTarget {
+        name: "eessi-extend-doctor".into(),
+        transport: TargetTransport::Local,
+        executor: TargetExecutor::Direct,
+        runtime: TargetRuntime::Host,
+        easybuild: EasyBuildWorkload {
+            command,
+            robot_paths: Vec::new(),
+            work_root: "/tmp".into(),
+            tmp_root: "/tmp".into(),
+            environment,
+        },
+    }
+}
+
+#[test]
+fn doctor_fails_an_eb_local_that_answers_version_itself_under_extend_mode() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let eb_local = version_stub(temp.path(), "eb-local 2.4.0 (x86_64-linux-musl)");
+    let config = temp.path().join("targets.toml");
+    std::fs::write(
+        &config,
+        format!(
+            r#"
+schema_version = 1
+[[targets]]
+name = "eessi-extend-old-eb-local"
+[targets.transport]
+kind = "local"
+[targets.executor]
+kind = "direct"
+[targets.runtime]
+kind = "host"
+[targets.easybuild]
+command = "{eb_local}"
+work_root = "/tmp"
+tmp_root = "/tmp"
+[targets.easybuild.environment]
+EB_LOCAL_EESSI_EXTEND = "1"
+"#
+        ),
+    )
+    .expect("config");
+    let doctor = Command::new(env!("CARGO_BIN_EXE_eb-stack"))
+        .args([
+            "target",
+            "doctor",
+            "--config",
+            config.to_str().unwrap(),
+            "--target",
+            "eessi-extend-old-eb-local",
+        ])
+        .output()
+        .expect("target doctor");
+    assert!(
+        !doctor.status.success(),
+        "an eb-local without extend mode must fail the doctor"
+    );
+    let report: serde_json::Value =
+        serde_json::from_slice(&doctor.stdout).expect("doctor JSON on stdout");
+    assert_eq!(report["ok"], false);
+    let checks = report["checks"].as_array().expect("checks");
+    for check in checks.iter().filter(|check| check["layer"] != "easybuild") {
+        assert_eq!(check["success"], true, "{check}");
+        assert!(check.get("reason").is_none(), "{check}");
+    }
+    let easybuild = checks
+        .iter()
+        .find(|check| check["layer"] == "easybuild")
+        .expect("easybuild check");
+    assert_eq!(easybuild["success"], false, "{easybuild}");
+    assert_eq!(easybuild["exit_code"], 0, "{easybuild}");
+    let reason = easybuild["reason"].as_str().unwrap_or_default();
+    assert!(
+        reason.contains("EB_LOCAL_EESSI_EXTEND") && reason.contains("2.5.0"),
+        "{easybuild}"
+    );
+}
+
+#[test]
+fn doctor_passes_an_eb_local_that_reaches_easybuild_under_extend_mode() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let eb_local = version_stub(
+        temp.path(),
+        "Environment set up to use EESSI (2026.06), have fun!\n\
+         This is EasyBuild 5.1.2 (framework: 5.1.2, easyblocks: 5.1.2) on host builder.",
+    );
+    let report = doctor_target(&host_target(eb_local, Some("1"))).expect("doctor");
+    assert!(report.ok(), "{report:?}");
+    assert!(report.checks.iter().all(|check| check.reason.is_none()));
+}
+
+#[test]
+fn doctor_reads_the_extend_variable_as_eb_local_does() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let eb_local = version_stub(temp.path(), "eb-local 2.4.0 (x86_64-linux-musl)");
+    for eessi_extend in [None, Some(""), Some("0")] {
+        let report = doctor_target(&host_target(eb_local.clone(), eessi_extend)).expect("doctor");
+        assert!(
+            report.ok(),
+            "EB_LOCAL_EESSI_EXTEND={eessi_extend:?} leaves extend mode off: {report:?}"
+        );
+    }
+    let report = doctor_target(&host_target(eb_local, Some("yes"))).expect("doctor");
+    assert!(!report.ok(), "{report:?}");
+}
+
 #[test]
 fn public_target_examples_form_a_complete_layered_target() {
     let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -442,9 +563,14 @@ fn public_eessi_extend_target_routes_through_eessi_container() {
     let target = &targets[0];
     assert_eq!(target.name, "eessi-extend-user");
     assert!(matches!(target.runtime, TargetRuntime::Eessi { .. }));
+    assert_eq!(target.easybuild.command, "/usr/local/bin/eb-local");
     assert_eq!(
-        target.easybuild.command,
-        "/usr/local/bin/eessi-extend-eb.sh"
+        target
+            .easybuild
+            .environment
+            .get("EB_LOCAL_EESSI_EXTEND")
+            .map(String::as_str),
+        Some("1")
     );
     assert_eq!(
         target
@@ -459,7 +585,9 @@ fn public_eessi_extend_target_routes_through_eessi_container() {
     let joined = command.args.join(" ");
     assert!(joined.contains("--mode exec"), "{joined}");
     assert!(joined.contains("--access ro"), "{joined}");
-    assert!(joined.contains("eessi-extend-eb.sh"), "{joined}");
+    assert!(joined.contains("/usr/local/bin/eb-local"), "{joined}");
+    assert!(joined.contains("EB_LOCAL_EESSI_EXTEND=1"), "{joined}");
+    assert!(!joined.contains("eessi-extend-eb.sh"), "{joined}");
     assert!(joined.contains("EESSI_USER_INSTALL="), "{joined}");
     assert!(joined.contains("art.eb"), "{joined}");
 }
@@ -520,7 +648,7 @@ kind = "direct"
 kind = "host"
 
 [targets.easybuild]
-command = "eessi-extend-eb.sh"
+command = "eb-local"
 robot_paths = []
 work_root = "/work/campaign"
 tmp_root = "/work/tmp"

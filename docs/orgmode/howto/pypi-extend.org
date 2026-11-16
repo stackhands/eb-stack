@@ -174,7 +174,8 @@ eb-stack campaign run \
 
 ~examples/targets/eessi-extend.toml~ is the target whose runtime command
 is ~eessi_container.sh~. The local target above is the one this checkout
-runs. ~scripts/eessi-extend-eb.sh~ is the wrapper that target execs.
+runs. That EESSI target execs ~eb-local~ with ~EB_LOCAL_EESSI_EXTEND=1~,
+which loads ~EESSI-extend~ and execs ~eb~.
 
 User one-offs stay as ~python -m venv --system-site-packages~ on EESSI
 Python. This workflow is for a shared site or project extra.

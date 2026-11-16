@@ -408,8 +408,8 @@ eb-stack campaign run \
   --state /tmp/site-extra.campaign.json
 ```
 
-`kind = "eessi"` launches `eessi_container.sh`. `scripts/eessi-extend-eb.sh`
-loads `EESSI-extend` and execs `eb`. Site installs set `EESSI_SITE_INSTALL=1`
+`kind = "eessi"` launches `eessi_container.sh`. `eb-local` with
+`EB_LOCAL_EESSI_EXTEND=1` loads `EESSI-extend` and execs `eb`. Site installs set `EESSI_SITE_INSTALL=1`
 in the target environment layer. `exts_list` on `SciPy-bundle` /
 `Python-bundle-PyPI` / `R-bundle-CRAN` is a Resolvo provide: do not
 reinstall numpy or a CRAN package the stack already ships.
