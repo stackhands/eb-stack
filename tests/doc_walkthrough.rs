@@ -297,11 +297,11 @@ fn foreign_plan_howtos_use_the_fixture_robots() {
             "--format",
             "pypi",
             "--toolchain",
-            "foss/2026.1",
+            "GCCcore/15.2.0",
             "--easyconfigs",
             "fixtures/foreign_ingest/pypi_bs4/robot",
             "--stack-policy",
-            "examples/stacks/eessi-python-extras.toml",
+            "examples/stacks/eessi-python-gcccore.toml",
             "--out-dir",
         ],
         &bs4,
@@ -312,14 +312,38 @@ fn foreign_plan_howtos_use_the_fixture_robots() {
         String::from_utf8_lossy(&status.stderr)
     );
     let recipe = std::fs::read_to_string(
-        bs4.join("easyconfigs/b/beautifulsoup4/beautifulsoup4-4.12.3-foss-2026.1.eb"),
+        bs4.join("easyconfigs/b/beautifulsoup4/beautifulsoup4-4.12.3-GCCcore-15.2.0.eb"),
     )
     .unwrap();
     assert!(recipe.contains("easyblock = 'PythonPackage'"), "{recipe}");
     assert!(!recipe.contains("exts_list"), "{recipe}");
+    assert!(
+        recipe.contains("dependencies = [('Python', '3.14.2'), ('Python-bundle-PyPI', '2026.04')]"),
+        "{recipe}"
+    );
     let page = std::fs::read_to_string(root().join("docs/orgmode/howto/pypi-extend.org")).unwrap();
     assert!(page.contains("fixtures/foreign_ingest/pypi_bs4/robot"));
     assert!(page.contains("easyblock = 'PythonPackage'") || page.contains("~PythonPackage~"));
+    // EESSI installs pure-Python packages on GCCcore, so the page plans bs4 there.
+    for command in [
+        "eb-stack package inspect \\\n  --source fixtures/foreign_ingest/pypi_bs4/pypi.json \\\n  \
+         --format pypi \\\n  --toolchain GCCcore/15.2.0 \\\n",
+        "eb-stack package plan \\\n  --source fixtures/foreign_ingest/pypi_bs4/pypi.json \\\n  \
+         --format pypi \\\n  --toolchain GCCcore/15.2.0 \\\n  \
+         --easyconfigs fixtures/foreign_ingest/pypi_bs4/robot \\\n  \
+         --stack-policy examples/stacks/eessi-python-gcccore.toml \\\n",
+    ] {
+        assert!(page.contains(command), "pypi-extend.org lacks:\n{command}");
+    }
+    assert!(page.contains("~Python 3.14.2~") && page.contains("~Python-bundle-PyPI 2026.04~"));
+    let skill = std::fs::read_to_string(root().join("skills/package-plan/SKILL.md")).unwrap();
+    for line in [
+        "  --toolchain GCCcore/15.2.0 \\\n",
+        "  --stack-policy examples/stacks/eessi-python-gcccore.toml \\\n",
+        "beautifulsoup4/beautifulsoup4-4.12.3-GCCcore-15.2.0.eb\n",
+    ] {
+        assert!(skill.contains(line), "package-plan skill lacks {line:?}");
+    }
 
     let cran = tmp.path().join("cran");
     let status = run_to(

@@ -1,10 +1,10 @@
 name = 'Python-bundle-PyPI'
-version = '2025.04'
+version = '2026.04'
 homepage = 'https://example.invalid/python-bundle-pypi'
 description = "Test bundle providing soupsieve"
-toolchain = {'name': 'foss', 'version': '2026.1'}
+toolchain = {'name': 'GCCcore', 'version': '15.2.0'}
 dependencies = [
-    ('Python', '3.13.1'),
+    ('Python', '3.14.2'),
 ]
 exts_list = [
     ('soupsieve', '2.6'),
