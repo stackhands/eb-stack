@@ -986,6 +986,169 @@ fn failed_profile_verification_preserves_the_build_claim_and_finding() {
         .contains("module=QMCPACK/4.3.0-complex-foss-2026.1"));
 }
 
+/// Lmod 8.7 after an EESSI 2026.06 init, when the module is not on
+/// `MODULEPATH`.
+const LMOD_UNKNOWN_MODULE: &str = "\
+Module for EESSI/2026.06 loaded successfully
+Lmod has detected the following error: The following module(s) are unknown:
+\"natsort/8.4.0-GCCcore-15.2.0\"
+
+Please check the spelling or version number. Also try \"module spider ...\"
+It is also possible your cache file is out-of-date; it may help to try:
+  $ module --ignore_cache load \"natsort/8.4.0-GCCcore-15.2.0\"
+";
+
+#[test]
+fn a_failed_verification_command_is_a_sanity_finding() {
+    let sanity = [
+        LMOD_UNKNOWN_MODULE,
+        "Traceback (most recent call last):\n  File \"<string>\", line 1, in <module>\nModuleNotFoundError: No module named 'natsort'\n",
+        "hello.c:3:5: error: implicit declaration of function 'MPI_Init'\ncompilation terminated.\n",
+        "ctest: 3 tests failed\n",
+        "pip install failed\n",
+    ];
+    for stderr in sanity {
+        assert_eq!(
+            classify_build_failure("verify", "", stderr, Some(1)),
+            BuildFindingClass::Sanity,
+            "{stderr}"
+        );
+    }
+    let target_side = [
+        (
+            "ssh: connect to host failed",
+            Some(255),
+            BuildFindingClass::Transport,
+        ),
+        (
+            "qmcpack: command not found\nNo such file or directory",
+            Some(127),
+            BuildFindingClass::Runtime,
+        ),
+        (
+            "slurmstepd: error: Detected 1 oom-kill",
+            Some(137),
+            BuildFindingClass::Resource,
+        ),
+        ("", Some(124), BuildFindingClass::Timeout),
+    ];
+    for (stderr, exit_code, expected) in target_side {
+        assert_eq!(
+            classify_build_failure("verify", "", stderr, exit_code),
+            expected,
+            "{stderr}"
+        );
+    }
+}
+
+#[test]
+fn a_failed_verification_finding_reads_the_way_the_state_file_spells_it() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let bundle = temp.path().join("bundle");
+    let recipes = bundle.join("easyconfigs/n/natsort");
+    std::fs::create_dir_all(&recipes).expect("recipes");
+    std::fs::create_dir_all(bundle.join("locks")).expect("locks");
+    let verify = format!(
+        "printf '%s' '{}' >&2; exit 1",
+        LMOD_UNKNOWN_MODULE.replace('\'', "")
+    );
+    std::fs::write(
+        bundle.join("package.plan.json"),
+        serde_json::json!({
+            "package": {"name": "natsort", "version": "8.4.0"},
+            "build": {"toolchain": {"name": "GCCcore", "version": "15.2.0"}},
+            "profiles": [{
+                "name": "default",
+                "default": true,
+                "versionsuffix": [],
+                "verification_commands": [{"program": "sh", "args": ["-c", verify]}]
+            }]
+        })
+        .to_string(),
+    )
+    .expect("manifest");
+    std::fs::write(
+        bundle.join("locks/default.lock.json"),
+        r#"{"profile":"default","solver":"resolvo"}"#,
+    )
+    .expect("lock");
+    write_valid_recipe(&recipes.join("natsort.eb"), "natsort", "8.4.0");
+
+    let state = run_campaign(&CampaignRequest {
+        bundle,
+        target: target("true"),
+        state_path: temp.path().join("campaign.json"),
+    })
+    .expect("campaign");
+    assert_eq!(state.status, CampaignStatus::Failed);
+    let finding = &state.findings[0];
+    assert_eq!(finding.class, BuildFindingClass::Sanity);
+    assert_eq!(finding.disposition, FindingDisposition::RequiresJudgment);
+    assert_eq!(
+        finding.summary,
+        "binary verification failed for profile default (exit 1)"
+    );
+    let details: Vec<&str> = state
+        .history
+        .iter()
+        .map(|event| event.detail.as_str())
+        .collect();
+    assert!(
+        details
+            .iter()
+            .any(|detail| detail.contains("classified binary verification failure as sanity")),
+        "{details:#?}"
+    );
+}
+
+#[test]
+fn a_failed_build_names_its_class_the_way_the_state_file_does() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let bundle = temp.path().join("bundle");
+    let recipes = bundle.join("easyconfigs/e/eOn");
+    std::fs::create_dir_all(&recipes).expect("recipes");
+    std::fs::create_dir_all(bundle.join("locks")).expect("locks");
+    std::fs::write(
+        bundle.join("package.plan.json"),
+        r#"{"package":{"name":"eOn","version":"2.16.0"}}"#,
+    )
+    .expect("manifest");
+    std::fs::write(
+        bundle.join("locks/default.lock.json"),
+        r#"{"profile":"default","solver":"resolvo"}"#,
+    )
+    .expect("lock");
+    write_valid_recipe(&recipes.join("eOn.eb"), "eOn", "2.16.0");
+    let command = temp.path().join("fake-eb");
+    write_executable(
+        &command,
+        "#!/bin/sh\nprintf '%s\\n' 'ERROR: Missing dependencies: Boost/1.92.0-gfbf-2026.1 (no easyconfig file or existing module found)'\nexit 1\n",
+    )
+    .expect("command");
+
+    let state = run_campaign(&CampaignRequest {
+        bundle,
+        target: target(command.to_str().expect("command path")),
+        state_path: temp.path().join("campaign.json"),
+    })
+    .expect("campaign");
+    assert_eq!(
+        state.findings[0].class,
+        BuildFindingClass::DependencyMissing
+    );
+    let details: Vec<&str> = state
+        .history
+        .iter()
+        .map(|event| event.detail.as_str())
+        .collect();
+    assert!(
+        details
+            .iter()
+            .any(|detail| detail.contains("classified build failure as dependency-missing")),
+        "{details:#?}"
+    );
+}
+
 #[test]
 fn campaign_cli_claims_and_resolves_findings_for_omp_workers() {
     let temp = tempfile::tempdir().expect("tempdir");

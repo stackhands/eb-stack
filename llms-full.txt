@@ -10116,6 +10116,11 @@ classification so the finding reflects the actual compiler or runtime error.
 | `timeout` | retryable | Routed timeout or scheduler wall time |
 | `unknown` | requires-judgment | Unclassified evidence; inspect the exact command and nested log |
 
+A failed verification command is `sanity`, or `timeout` when it ran out of
+time, unless its output names a transport, executor, runtime, or resource
+cause. Nothing is compiled while it runs, so an Lmod `error:` line is a module
+that does not load, not a `compile` failure.
+
 The class narrows the first repair surface; it does not replace diagnosis.
 For example, a SAT-compatible dependency that fails to compile remains a
 `compile` finding until evidence supports a stack exclusion or package patch.

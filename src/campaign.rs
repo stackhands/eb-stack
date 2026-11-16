@@ -90,6 +90,15 @@ pub enum BuildFindingClass {
     Unknown,
 }
 
+/// The name the state file uses, so a summary or history line says
+/// `dependency-missing` where the JSON does.
+impl std::fmt::Display for BuildFindingClass {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let value = serde_json::to_value(self).map_err(|_| std::fmt::Error)?;
+        formatter.write_str(value.as_str().unwrap_or("unknown"))
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 /// What kind of intervention a finding needs.
@@ -423,7 +432,7 @@ pub fn run_campaign(request: &CampaignRequest) -> Result<CampaignState, Campaign
                 recipe: Some(recipe_text),
                 detail: stuck_detail(
                     &state,
-                    format!("classified packaging preflight failure as {class:?}"),
+                    format!("classified packaging preflight failure as {class}"),
                 ),
             });
             write_state(&request.state_path, &state)?;
@@ -469,7 +478,7 @@ pub fn run_campaign(request: &CampaignRequest) -> Result<CampaignState, Campaign
                 recipe: None,
                 detail: stuck_detail(
                     &state,
-                    "classified bundle staging failure as Transport".to_string(),
+                    "classified bundle staging failure as transport".to_string(),
                 ),
             });
             write_state(&request.state_path, &state)?;
@@ -623,7 +632,7 @@ pub fn run_campaign(request: &CampaignRequest) -> Result<CampaignState, Campaign
                 attempt: state.attempts,
                 status: CampaignStatus::Failed,
                 recipe: Some(recipe_text),
-                detail: stuck_detail(&state, format!("classified build failure as {class:?}")),
+                detail: stuck_detail(&state, format!("classified build failure as {class}")),
             });
             write_state(&request.state_path, &state)?;
             return Ok(state);
@@ -700,9 +709,9 @@ pub fn run_campaign(request: &CampaignRequest) -> Result<CampaignState, Campaign
                     recipe: format!("profile:{}", profile.name),
                     target: run_target.name.clone(),
                     summary: format!(
-                        "binary verification failed for profile {} (exit {:?})",
+                        "binary verification failed for profile {} ({})",
                         profile.name,
-                        output.status.code()
+                        exit_status(output.status.code())
                     ),
                     evidence: format!("module={module}\n{}", compact_evidence(&stdout, &stderr)),
                     command,
@@ -721,7 +730,7 @@ pub fn run_campaign(request: &CampaignRequest) -> Result<CampaignState, Campaign
                     recipe: Some(format!("profile:{}", profile.name)),
                     detail: stuck_detail(
                         &state,
-                        format!("classified binary verification failure as {class:?}"),
+                        format!("classified binary verification failure as {class}"),
                     ),
                 });
                 write_state(&request.state_path, &state)?;
@@ -1050,6 +1059,16 @@ pub fn classify_build_failure(
         BuildFindingClass::DependencyMissing
     } else if (text.contains("glibc_") && text.contains("not found")) || missing_executable {
         BuildFindingClass::Runtime
+    } else if stage.eq_ignore_ascii_case("verify") {
+        // A profile's verification command runs the installed module, so
+        // nothing in its output is a fetch, patch, configure, compile or
+        // install step failing: Lmod's `error:` line is the module not
+        // loading.
+        if text.contains("timed out") || exit_code == Some(124) {
+            BuildFindingClass::Timeout
+        } else {
+            BuildFindingClass::Sanity
+        }
     } else if checksum_failure {
         BuildFindingClass::Checksum
     } else if source_failure {
@@ -1085,8 +1104,6 @@ pub fn classify_build_failure(
         BuildFindingClass::Install
     } else if text.contains("timed out") || exit_code == Some(124) {
         BuildFindingClass::Timeout
-    } else if stage.eq_ignore_ascii_case("verify") {
-        BuildFindingClass::Sanity
     } else {
         BuildFindingClass::Unknown
     }
@@ -1143,7 +1160,7 @@ fn record_target_command_failure(
         stage: stage.into(),
         recipe: recipe.into(),
         target: target.name.clone(),
-        summary: format!("{class:?} target command could not start"),
+        summary: format!("{class} target command could not start"),
         evidence: error.to_string(),
         command,
         exit_code: None,
@@ -1159,7 +1176,7 @@ fn record_target_command_failure(
         attempt: state.attempts,
         status: CampaignStatus::Failed,
         recipe: Some(recipe.into()),
-        detail: format!("classified target command failure as {class:?}"),
+        detail: format!("classified target command failure as {class}"),
     });
 }
 
@@ -1274,13 +1291,16 @@ fn disposition(class: BuildFindingClass) -> FindingDisposition {
 }
 
 fn finding_summary(class: BuildFindingClass, exit_code: Option<i32>) -> String {
-    let class = serde_json::to_value(class)
-        .ok()
-        .and_then(|value| value.as_str().map(str::to_string))
-        .unwrap_or_else(|| "unknown".into());
+    format!(
+        "{class} failure from EasyBuild command ({})",
+        exit_status(exit_code)
+    )
+}
+
+fn exit_status(exit_code: Option<i32>) -> String {
     match exit_code {
-        Some(code) => format!("{class} failure from EasyBuild command (exit {code})"),
-        None => format!("{class} failure from EasyBuild command (no exit status)"),
+        Some(code) => format!("exit {code}"),
+        None => "no exit status".into(),
     }
 }
 
