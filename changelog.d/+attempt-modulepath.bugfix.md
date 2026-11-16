@@ -1,0 +1,1 @@
+A verification command runs with the module tree of the attempt's install path, `<installpath>/modules/all` by default, first on `MODULEPATH` and on `EESSI_EXTRA_MODULEPATH`, so `module load {module}` finds the module the attempt built, also after the EESSI init replaces `MODULEPATH`.

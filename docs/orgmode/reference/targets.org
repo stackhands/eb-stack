@@ -129,6 +129,23 @@ The routed build command adds ~--robot=<colon-separated paths>~ and
 ~--buildpath=<work_root>/build~. Later robot roots override earlier recipes
 with the same EasyBuild identity.
 
+A campaign gives each attempt its own prefix. It sets ~EASYBUILD_INSTALLPATH~
+to ~<work_root>/install-attempts/<package>-<version>/attempt-<N>~, and the
+build command passes that as ~--installpath~. The flag takes precedence over
+an install path from the environment, such as the one ~EESSI-extend~ derives
+from ~EESSI_USER_INSTALL~, so a campaign does not install into that prefix.
+
+A verification command runs with the module tree of ~EASYBUILD_INSTALLPATH~
+first on ~MODULEPATH~ and on ~EESSI_EXTRA_MODULEPATH~. The tree is
+~<installpath>/modules/all~ unless the environment sets
+~EASYBUILD_INSTALLPATH_MODULES~, ~EASYBUILD_SUBDIR_MODULES~, or
+~EASYBUILD_SUFFIX_MODULES_PATH~. So ~module load {module}~ finds the attempt's
+module, also after the EESSI init, which replaces ~MODULEPATH~ and keeps
+~EESSI_EXTRA_MODULEPATH~. That init puts its own trees first, so a module
+EESSI also provides loads from EESSI. To load the attempt's build instead,
+run ~module use $EASYBUILD_INSTALLPATH/modules/all~ after the init and before
+~module load EESSI-extend~, which sets ~EASYBUILD_INSTALLPATH~ again.
+
 Treat ~EASYBUILD_PARALLEL~ and the executor allocation as one resource
 contract. Parallel C++ compiler processes can each consume more than a
 gigabyte, so CPU count alone is not a safe job count. The runnable local target
