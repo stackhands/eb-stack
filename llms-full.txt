@@ -7586,8 +7586,9 @@ path minus the installed modules, as `pr-overlap` computes a root's set.
 Installed modules come from `--installed-modules-dir`, an Lmod
 `modules/all` tree read as `Name/Version` (EESSI's tree for the CPU target
 and the site tree, for example), and from `--installed` lists, one
-`Name/VersionFull` per line; both repeat. A line with `--rebuild` or
-`--force` builds its own module even when it is installed. Two lines share
+`Name/VersionFull` per line; both repeat. A line with `--rebuild`,
+`--force` or its short form `-f` builds its own module even when it is
+installed. Two lines share
 a shard only when one line's easyconfig is in the other's set, or both name
 the same easyconfig; the line that is needed comes first. Every other module
 the sets of two or more shards need goes to the prelude, so the shards'
