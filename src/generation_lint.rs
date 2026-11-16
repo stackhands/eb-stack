@@ -1,8 +1,8 @@
 //! Toolchain generations an EESSI version carries, checked on a plan's easystacks.
 //!
 //! Each EESSI version is built on a fixed set of toolchain generations:
-//! 2023.06 on 2022b, 2023a and 2023b, 2025.06 on 2024a, 2025a and 2025b.
-//! `data/eessi-generations.toml` is that table. An easystack entry on a
+//! 2023.06 on 2022b, 2023a and 2023b, 2025.06 on 2024a, 2025a and 2025b,
+//! 2026.06 on 2026.1. `data/eessi-generations.toml` is that table. An easystack entry on a
 //! toolchain outside its version's generations cannot go into that version:
 //! software-layer #1472 put pv on GCCcore-12.3.0, which is 2023a, into a
 //! 2025.06 easystack. The bot builds one EESSI version per pull request, so

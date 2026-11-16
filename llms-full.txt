@@ -7184,7 +7184,7 @@ eb-stack stack batch \
   (--root FILE.eb... | --roots-file ROOTS.txt) \
   --easyconfigs TREE [--easyconfigs OVERLAY]... \
   [--commit-tree COMMIT=DIR]... \
-  --installed INSTALLED.txt [--installed-modulerc MODULERC]... \
+  --installed INSTALLED.txt [--installed-modulerc PATH]... \
   [--open-prs OPEN.json]... [--open-repo EESSI/software-layer] \
   --eessi-version 2026.06 --easybuild-version 5.4.1 --generation 2026.1 \
   [--filter-deps NAME,NAME...] \
@@ -7500,8 +7500,9 @@ together; a root whose set meets an open pull request's waits for it.
 Open pull requests come from `--open-prs` (`pr-overlap --pr` JSON) and
 `--open-repo`, which reads the open pull requests of that repository over
 HTTPS. `--commit-tree` supplies the easyconfigs an open pull request pins
-with `from-commit`. `--installed-modulerc` adds `module_version` aliases to
-the installed list. The rest are packed `--size` roots per pull request in
+with `from-commit`. `--installed-modulerc`, a `.modulerc.lua` file or a
+module tree, adds `module_version` aliases to the installed list. The rest
+are packed `--size` roots per pull request in
 a fixed order, so the same inputs give the same plan. With
 `--easyconfigs-repo`, a root the `--easybuild-version` release lacks gets a
 `from-commit` pin. Each `batch-NN` directory holds the EESSI easystacks, a
