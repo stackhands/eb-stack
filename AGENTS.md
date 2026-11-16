@@ -71,9 +71,9 @@ lint findings remain, and do not comment on the PR.
 ## Version-one CLI
 
 ```text
-package  inspect | plan | bump
+package  inspect | plan | bump | latest
 recipe   easyblock | templates | hierarchy | check | lint | format
-stack    solve | sbom | order | easystack | sections | from-commit | gap | provided | shadow | batch | shard | footprints | admit | arch | files | generation | cuda-cc | known-failures | oom | bot-classify
+stack    solve | sbom | order | easystack | sections | from-commit | gap | provided | shadow | batch | shard | capacity | footprints | admit | arch | files | generation | cuda-cc | known-failures | oom | bot-classify
 target   list | doctor
 campaign run | status | finding claim | finding resolve
 repro    summary

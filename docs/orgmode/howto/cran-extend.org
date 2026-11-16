@@ -10,7 +10,10 @@ dependency on the EasyBuild ~R~ module. Packages already listed in
 * Inputs
 
 1. a DESCRIPTION file, ~cran.json~, or a one-spec-per-line package list;
-2. the European Environment for Scientific Software Installations (EESSI) robot tree;
+2. the European Environment for Scientific Software Installations (EESSI) robot tree,
+   passed as ~--easyconfigs~. It is the easyconfigs directory bundled with
+   EESSI's EasyBuild: ~$EBROOTEASYBUILD/easybuild/easyconfigs~ after
+   loading EESSI's ~EasyBuild~ module;
 3. a stack policy that locks ~R~ and ~R-bundle-CRAN~ to the versions
    in the robot. See ~examples/stacks/eessi-r-extras.toml~.
 
