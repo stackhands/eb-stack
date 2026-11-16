@@ -34,7 +34,9 @@ pub struct GapRow {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub recipe: Option<String>,
     /// The newest easyconfig of the name on any toolchain, for `no-recipe`:
-    /// the source a bump starts from.
+    /// the source a bump starts from. Between builds of one version, one on
+    /// a toolchain family of the generation, then on the newest toolchain
+    /// generation, is named.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub newest_elsewhere: Option<String>,
     /// Why a name is `excluded` or `filtered`, or the pull requests that
@@ -198,15 +200,60 @@ fn on_generation(candidate: &Candidate, generation: &str, members: &[String]) ->
 /// Order candidates newest first: version, then a recipe without a
 /// versionsuffix before one with, then by file name.
 fn newest_first(a: &&Candidate, b: &&Candidate) -> Ordering {
-    cmp_version(&b.version, &a.version)
-        .then_with(|| {
-            a.versionsuffix
-                .as_deref()
-                .unwrap_or("")
-                .len()
-                .cmp(&b.versionsuffix.as_deref().unwrap_or("").len())
+    newer_build(a, b).then_with(|| file_of(a).cmp(&file_of(b)))
+}
+
+/// Order bump sources as [`newest_first`], except that between builds of
+/// one version a toolchain of a family the generation uses comes first,
+/// then the newer toolchain generation, then the newer toolchain of one
+/// name. Versions of two toolchain names are not compared: GCC 14.3.0 and
+/// foss 2025b do not count the same way.
+fn bump_source_first(
+    a: &Candidate,
+    b: &Candidate,
+    members: &[String],
+    generations: &BTreeMap<String, Option<String>>,
+) -> Ordering {
+    let generation = |candidate: &Candidate| {
+        generations
+            .get(&toolchain_label(candidate))
+            .cloned()
+            .flatten()
+    };
+    newer_build(a, b)
+        .then_with(|| in_member_family(b, members).cmp(&in_member_family(a, members)))
+        .then_with(|| match (generation(a), generation(b)) {
+            (Some(left), Some(right)) => cmp_version(&right, &left),
+            (Some(_), None) => Ordering::Less,
+            (None, Some(_)) => Ordering::Greater,
+            (None, None) => Ordering::Equal,
         })
+        .then_with(|| a.toolchain.name.cmp(&b.toolchain.name))
+        .then_with(|| cmp_version(&b.toolchain.version, &a.toolchain.version))
         .then_with(|| file_of(a).cmp(&file_of(b)))
+}
+
+fn newer_build(a: &Candidate, b: &Candidate) -> Ordering {
+    cmp_version(&b.version, &a.version).then_with(|| {
+        a.versionsuffix
+            .as_deref()
+            .unwrap_or("")
+            .len()
+            .cmp(&b.versionsuffix.as_deref().unwrap_or("").len())
+    })
+}
+
+/// Whether the candidate's toolchain name is the name of a member label,
+/// `foss` for `foss-2026.1`.
+fn in_member_family(candidate: &Candidate, members: &[String]) -> bool {
+    let name = candidate.toolchain.name.as_str();
+    members.iter().any(|label| {
+        label == name
+            || label
+                .strip_prefix(name)
+                .and_then(|rest| rest.strip_prefix('-'))
+                .is_some_and(|version| version.starts_with(|c: char| c.is_ascii_digit()))
+    })
 }
 
 fn reason_for<'a>(map: &'a BTreeMap<String, String>, name: &str) -> Option<&'a str> {
@@ -267,6 +314,8 @@ pub fn gap(input: &GapInput<'_>) -> Vec<GapRow> {
             .or_default()
             .push(candidate);
     }
+    let table = crate::generation_lint::GenerationTable::bundled().ok();
+    let mut generations: BTreeMap<String, Option<String>> = BTreeMap::new();
     let mut rows = Vec::new();
     for name in input.site {
         if stack_lower.contains(&name.to_lowercase()) {
@@ -316,13 +365,18 @@ pub fn gap(input: &GapInput<'_>) -> Vec<GapRow> {
             ));
             continue;
         }
-        rows.push(row(
-            name,
-            "no-recipe",
-            None,
-            all.first().map(|candidate| file_of(candidate)),
-            None,
-        ));
+        for candidate in &all {
+            generations
+                .entry(toolchain_label(candidate))
+                .or_insert_with_key(|label| {
+                    table.as_ref().and_then(|table| table.generation_of(label))
+                });
+        }
+        let source = all
+            .iter()
+            .copied()
+            .min_by(|a, b| bump_source_first(a, b, input.members, &generations));
+        rows.push(row(name, "no-recipe", None, source.map(file_of), None));
     }
     rows
 }
@@ -789,6 +843,76 @@ mod tests {
             rows[0].newest_elsewhere.as_deref(),
             Some("LAMMPS-22Jul2025_update4-foss-2025b-kokkos.eb")
         );
+    }
+
+    #[test]
+    fn an_equal_version_prefers_the_generation_toolchain_family() {
+        let site = names_from_listing("QuantumESPRESSO\n");
+        let candidates = vec![
+            cand(
+                "QuantumESPRESSO",
+                "7.5",
+                ("NVHPC", "25.3-CUDA-12.8.0"),
+                None,
+            ),
+            cand("QuantumESPRESSO", "7.5", ("foss", "2025a"), None),
+            cand("QuantumESPRESSO", "7.5", ("lfoss", "2025b"), None),
+            cand("QuantumESPRESSO", "7.5", ("foss", "2025b"), None),
+            cand("QuantumESPRESSO", "7.4.1", ("foss", "2025a"), None),
+        ];
+        let rows = classify(
+            &site,
+            &BTreeSet::new(),
+            &candidates,
+            &BTreeMap::new(),
+            &BTreeSet::new(),
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+        );
+        assert_eq!(rows[0].route, "no-recipe");
+        assert_eq!(
+            rows[0].newest_elsewhere.as_deref(),
+            Some("QuantumESPRESSO-7.5-foss-2025b.eb")
+        );
+    }
+
+    #[test]
+    fn an_equal_version_prefers_the_newest_toolchain_generation() {
+        let site = names_from_listing("X\n");
+        let candidates = vec![
+            cand("X", "1.0", ("foss", "2023a"), None),
+            cand("X", "1.0", ("GCCcore", "11.3.0"), None),
+            cand("X", "1.0", ("GCC", "14.3.0"), None),
+            cand("X", "1.0", ("GCC", "13.2.0"), None),
+        ];
+        let rows = classify(
+            &site,
+            &BTreeSet::new(),
+            &candidates,
+            &BTreeMap::new(),
+            &BTreeSet::new(),
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+        );
+        assert_eq!(
+            rows[0].newest_elsewhere.as_deref(),
+            Some("X-1.0-GCC-14.3.0.eb")
+        );
+    }
+
+    #[test]
+    fn a_member_family_is_the_toolchain_name_of_a_member() {
+        let members = ["GCCcore-15.2.0", "foss-2026.1", "llvm-compilers-21.1.8"].map(String::from);
+        let on = |name: &str| {
+            in_member_family(&cand("X", "1", (name, "2025b"), None), members.as_slice())
+        };
+        assert!(on("foss"));
+        assert!(on("GCCcore"));
+        assert!(on("llvm-compilers"));
+        assert!(!on("GCC"));
+        assert!(!on("fos"));
+        assert!(!on("llvm"));
+        assert!(!on("NVHPC"));
     }
 
     #[test]

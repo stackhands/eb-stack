@@ -20,6 +20,12 @@ A toolchain whose version is the generation counts as on it, so
 generation in ~data/eessi-generations.toml~, such as
 ~llvm-compilers-21.1.8~.
 
+When the newest version has several builds, the bump source is one on a
+toolchain family the generation uses, ~foss~ for ~foss-2026.1~, and of
+those the one on the newest toolchain generation. QuantumESPRESSO 7.5 is
+bumped from ~foss-2025b~, not from ~NVHPC-25.3-CUDA-12.8.0~ or
+~foss-2025a~.
+
 * Capture the live inventories
 
 The helper uses the shell's ~module~ function.
