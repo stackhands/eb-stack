@@ -5961,7 +5961,7 @@ reads each such line's tree there, downloading the ones it lacks:
 eb-stack stack shard \
   --build-list site-2026e.list \
   --easyconfigs easybuild-easyconfigs/easybuild/easyconfigs \
-  --commit-cache /scratch-shared/$USER/eb-stack-commit-trees \
+  --commit-cache $SCRATCH/eb-stack-commit-trees \
   --shards 4 \
   --out-dir /tmp/shards
 ```
@@ -6033,7 +6033,7 @@ free:
 
 ```bash
 eb-stack stack shard \
-  --build-list genoa.list \
+  --build-list zen4.list \
   --easyconfigs easyconfigs \
   --shards 7 \
   --inode-quota 3000000 --inode-margin 100000 \
