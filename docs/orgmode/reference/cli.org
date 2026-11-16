@@ -1076,8 +1076,12 @@ is a file name: letters, digits, ~.~, ~_~, and ~-~. The command prints
 one JSON line (~job~, ~admitted~, ~available~, ~used~, ~soft~, ~hard~,
 ~reserved~, ~footprint~, ~margin~, ~headroom~, ~live_jobs~, ~counted~,
 ~stale~, ~stale_dropped~, ~unknown~, ~unknown_reserved~, ~refusal~,
-~reservation~, ~ts~) and exits 0 when admitted, 78 when refused. The
-footprint model is
+~reservation~, ~ts~) and exits 0 when admitted, 78 when refused.
+~refusal~ is ~null~ on admit. On a refusal it names the command that
+failed, or the inodes the job is short followed by the ~available~,
+~reserved~, ~footprint~ and ~margin~ that decided it:
+~106000 inodes short: 1000 available, 2000 reserved, footprint 5000,
+margin 100000~. The footprint model is
 [[file:../explanation/sharding-admission.org][Sharding and inode admission]]. A
 reservation file that is not JSON, has no ~job~ or ~footprint~, or
 names another job than its file name exits 1, because a reservation

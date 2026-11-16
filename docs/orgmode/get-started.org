@@ -101,7 +101,7 @@ eb-stack stack admit \
 #+end_src
 
 #+begin_example
-{"admitted":false,"available":100000,"counted":[],"footprint":351000,"grace":null,"hard":3500000,"headroom":-351000,"job":"lane-1","live_jobs":null,"live_jobs_cmd":null,"lock":null,"lock_kind":null,"margin":100000,"refusal":null,"reservation":null,"reserved":0,"soft":3000000,"soft_exceeded":false,"stale":[],"stale_dropped":false,"ts":"2026-11-10T12:00:00Z","unknown":[],"unknown_reserved":0,"used":2900000}
+{"admitted":false,"available":100000,"counted":[],"footprint":351000,"grace":null,"hard":3500000,"headroom":-351000,"job":"lane-1","live_jobs":null,"live_jobs_cmd":null,"lock":null,"lock_kind":null,"margin":100000,"refusal":"351000 inodes short: 100000 available, 0 reserved, footprint 351000, margin 100000","reservation":null,"reserved":0,"soft":3000000,"soft_exceeded":false,"stale":[],"stale_dropped":false,"ts":"2026-11-10T12:00:00Z","unknown":[],"unknown_reserved":0,"used":2900000}
 #+end_example
 
 The exit status is 78. Exit statuses for the rest of the CLI are in the

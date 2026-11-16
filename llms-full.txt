@@ -200,7 +200,7 @@ eb-stack stack admit \
 ```
 
 ```
-{"admitted":false,"available":100000,"counted":[],"footprint":351000,"grace":null,"hard":3500000,"headroom":-351000,"job":"lane-1","live_jobs":null,"live_jobs_cmd":null,"lock":null,"lock_kind":null,"margin":100000,"refusal":null,"reservation":null,"reserved":0,"soft":3000000,"soft_exceeded":false,"stale":[],"stale_dropped":false,"ts":"2026-11-10T12:00:00Z","unknown":[],"unknown_reserved":0,"used":2900000}
+{"admitted":false,"available":100000,"counted":[],"footprint":351000,"grace":null,"hard":3500000,"headroom":-351000,"job":"lane-1","live_jobs":null,"live_jobs_cmd":null,"lock":null,"lock_kind":null,"margin":100000,"refusal":"351000 inodes short: 100000 available, 0 reserved, footprint 351000, margin 100000","reservation":null,"reserved":0,"soft":3000000,"soft_exceeded":false,"stale":[],"stale_dropped":false,"ts":"2026-11-10T12:00:00Z","unknown":[],"unknown_reserved":0,"used":2900000}
 ```
 
 The exit status is 78. Exit statuses for the rest of the CLI are in the
@@ -7735,8 +7735,12 @@ is a file name: letters, digits, `.`, `_`, and `-`. The command prints
 one JSON line (`job`, `admitted`, `available`, `used`, `soft`, `hard`,
 `reserved`, `footprint`, `margin`, `headroom`, `live_jobs`, `counted`,
 `stale`, `stale_dropped`, `unknown`, `unknown_reserved`, `refusal`,
-`reservation`, `ts`) and exits 0 when admitted, 78 when refused. The
-footprint model is
+`reservation`, `ts`) and exits 0 when admitted, 78 when refused.
+`refusal` is `null` on admit. On a refusal it names the command that
+failed, or the inodes the job is short followed by the `available`,
+`reserved`, `footprint` and `margin` that decided it:
+~106000 inodes short: 1000 available, 2000 reserved, footprint 5000,
+margin 100000~. The footprint model is
 [Sharding and inode admission](https://eb-stack.rgoswami.me/../explanation/sharding-admission.html.md). A
 reservation file that is not JSON, has no `job` or `footprint`, or
 names another job than its file name exits 1, because a reservation
@@ -11239,8 +11243,9 @@ reservation whose job is absent from the live list is stale: ignored,
 and deleted only with `--drop-stale`.
 
 Exit 0 writes `<job>.json` (`job`, `footprint`, `margin`, `ts`) under
-`--reservations`. Exit 78 writes nothing. A quota command or a scheduler
-command that fails also exits 78, and the JSON `refusal` field says why.
+`--reservations`. Exit 78 writes nothing, and the JSON `refusal` field
+says why: the inodes the job is short, or the quota or scheduler command
+that failed.
 A reservation file that is unreadable exits 1, because a reservation
 that cannot be parsed would hide inodes.
 
@@ -11263,7 +11268,7 @@ eb-stack stack admit \
 ```
 
 ```
-{"admitted":false,"available":100000,"counted":[],"footprint":351000,"grace":null,"hard":3500000,"headroom":-351000,"job":"lane-1","live_jobs":null,"live_jobs_cmd":null,"lock":null,"lock_kind":null,"margin":100000,"refusal":null,"reservation":null,"reserved":0,"soft":3000000,"soft_exceeded":false,"stale":[],"stale_dropped":false,"ts":"2026-11-10T12:00:00Z","unknown":[],"unknown_reserved":0,"used":2900000}
+{"admitted":false,"available":100000,"counted":[],"footprint":351000,"grace":null,"hard":3500000,"headroom":-351000,"job":"lane-1","live_jobs":null,"live_jobs_cmd":null,"lock":null,"lock_kind":null,"margin":100000,"refusal":"351000 inodes short: 100000 available, 0 reserved, footprint 351000, margin 100000","reservation":null,"reserved":0,"soft":3000000,"soft_exceeded":false,"stale":[],"stale_dropped":false,"ts":"2026-11-10T12:00:00Z","unknown":[],"unknown_reserved":0,"used":2900000}
 ```
 
 The process exits 78.
@@ -11313,7 +11318,7 @@ eb-stack stack admit \
 ```
 
 ```
-{"admitted":false,"available":0,"counted":[],"footprint":200000,"grace":"expired","hard":3500000,"headroom":-300000,"job":"lane-1","live_jobs":null,"live_jobs_cmd":null,"lock":null,"lock_kind":null,"margin":100000,"refusal":null,"reservation":null,"reserved":0,"soft":3000000,"soft_exceeded":true,"stale":[],"stale_dropped":false,"ts":"2026-11-10T12:00:00Z","unknown":[],"unknown_reserved":0,"used":3100000}
+{"admitted":false,"available":0,"counted":[],"footprint":200000,"grace":"expired","hard":3500000,"headroom":-300000,"job":"lane-1","live_jobs":null,"live_jobs_cmd":null,"lock":null,"lock_kind":null,"margin":100000,"refusal":"300000 inodes short: 0 available, 0 reserved, footprint 200000, margin 100000","reservation":null,"reserved":0,"soft":3000000,"soft_exceeded":true,"stale":[],"stale_dropped":false,"ts":"2026-11-10T12:00:00Z","unknown":[],"unknown_reserved":0,"used":3100000}
 ```
 
 The process exits 78.
