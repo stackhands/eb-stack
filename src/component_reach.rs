@@ -113,6 +113,10 @@ pub struct ReachDocument {
     pub closure_rows: Vec<RebuildRow>,
     /// Changed filenames missing from the closure graph.
     pub missing: Vec<String>,
+    /// Requirements no recipe in the trees resolves, so the closure has no
+    /// edge for them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub closure_unresolved: Vec<String>,
     /// Compat-layer hits and closure notes.
     pub notes: Vec<String>,
 }
@@ -206,7 +210,8 @@ pub fn component_reach(query: &ReachQuery<'_>) -> ReachDocument {
     });
     carriers.dedup();
     let changed: Vec<String> = changed.into_iter().collect();
-    let (mut closure_counts, closure_rows, missing, extra) = close(query, &changed);
+    let (mut closure_counts, closure_rows, missing, closure_unresolved, extra) =
+        close(query, &changed);
     if matches!(model, PurlMatch::Unsupported) {
         closure_counts.review = 1;
     }
@@ -238,6 +243,7 @@ pub fn component_reach(query: &ReachQuery<'_>) -> ReachDocument {
         closure_counts,
         closure_rows,
         missing,
+        closure_unresolved,
         notes,
     }
 }
@@ -472,17 +478,23 @@ pub fn fetch_easystack_urls(
     Ok(out)
 }
 
-fn close(
-    query: &ReachQuery<'_>,
-    changed: &[String],
-) -> (RebuildCounts, Vec<RebuildRow>, Vec<String>, Vec<String>) {
+/// Counts, rows, missing filenames, unresolved requirements, and notes.
+type Closure = (
+    RebuildCounts,
+    Vec<RebuildRow>,
+    Vec<String>,
+    Vec<String>,
+    Vec<String>,
+);
+
+fn close(query: &ReachQuery<'_>, changed: &[String]) -> Closure {
     let empty = RebuildCounts {
         no_rebuild: 0,
         review: 0,
         must_rebuild: 0,
     };
     if changed.is_empty() {
-        return (empty, Vec::new(), Vec::new(), Vec::new());
+        return (empty, Vec::new(), Vec::new(), Vec::new(), Vec::new());
     }
     let owned: Vec<Candidate> = query
         .candidates
@@ -518,7 +530,12 @@ fn close(
     };
     let installed = query.installed.cloned().unwrap_or(modules);
     match rebuild_set(&RebuildQuery {
-        base: owned,
+        // The whole tree, not only the generation: a gfbf or gompi hierarchy
+        // is read off its definition recipe, which is a SYSTEM recipe, and
+        // without it no unpinned dependency of a recipe on that toolchain
+        // resolves. The roots and the installed set keep the rows in the
+        // generation.
+        base: query.candidates.to_vec(),
         commits: Default::default(),
         easystacks: easystacks.to_vec(),
         changed: changed.to_vec(),
@@ -534,9 +551,16 @@ fn close(
             document.counts,
             document.rows,
             document.missing,
+            document.unresolved,
             document.notes,
         ),
-        Err(error) => (empty, Vec::new(), Vec::new(), vec![error.to_string()]),
+        Err(error) => (
+            empty,
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            vec![error.to_string()],
+        ),
     }
 }
 

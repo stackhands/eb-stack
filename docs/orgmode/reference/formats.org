@@ -715,6 +715,7 @@ One run writes ~component-reach.toml~, ~component-reach.json~, and
 | ~closure_counts~ | Row counts, keys ~no-rebuild~, ~review~, ~must-rebuild~ |
 | ~closure_rows~ | Rebuild-set rows for ~changed~ |
 | ~missing~ | Changed filenames absent from the closure graph |
+| ~closure_unresolved~ | Requirements no recipe resolves, so the closure has no edge for them. Omitted when empty |
 | ~notes~ | A compat-layer hit, or a note the closure recorded |
 
 ~version_reqs~, ~versions~, ~purl~, and ~ecosystem~ are omitted when
