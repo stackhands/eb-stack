@@ -242,6 +242,67 @@ fn verification_command_sets_tmpdir_and_workload_environment() {
 }
 
 #[test]
+fn verification_command_puts_the_installed_module_tree_first() {
+    let paths = |environment: &[(&str, &str)]| {
+        let target = BuildTarget {
+            name: "local".into(),
+            transport: TargetTransport::Local,
+            executor: TargetExecutor::Direct,
+            runtime: TargetRuntime::Host,
+            easybuild: EasyBuildWorkload {
+                command: "eb".into(),
+                robot_paths: Vec::new(),
+                work_root: "/work".into(),
+                tmp_root: "/tmp".into(),
+                environment: environment
+                    .iter()
+                    .map(|(name, value)| (name.to_string(), value.to_string()))
+                    .collect(),
+            },
+        };
+        let plan = target.verification_command(
+            "sh",
+            &[
+                "-c".into(),
+                r#"printf '%s\n' "$MODULEPATH" "$EESSI_EXTRA_MODULEPATH""#.into(),
+            ],
+        );
+        let output = plan.execute().expect("verification command");
+        assert!(output.status.success(), "{plan:?}");
+        String::from_utf8(output.stdout).expect("utf-8")
+    };
+    let site = [
+        ("MODULEPATH", "/site/modules"),
+        ("EESSI_EXTRA_MODULEPATH", "/site/extra"),
+    ];
+    let with = |extra: &[(&'static str, &'static str)]| {
+        let mut environment = site.to_vec();
+        environment.extend_from_slice(extra);
+        paths(&environment)
+    };
+    assert_eq!(
+        with(&[("EASYBUILD_INSTALLPATH", "/work/attempt-1")]),
+        "/work/attempt-1/modules/all:/site/modules\n/work/attempt-1/modules/all:/site/extra\n"
+    );
+    assert_eq!(
+        with(&[
+            ("EASYBUILD_INSTALLPATH", "/work/attempt-1"),
+            ("EASYBUILD_SUBDIR_MODULES", "mods"),
+            ("EASYBUILD_SUFFIX_MODULES_PATH", "collection"),
+        ]),
+        "/work/attempt-1/mods/collection:/site/modules\n/work/attempt-1/mods/collection:/site/extra\n"
+    );
+    assert_eq!(
+        with(&[
+            ("EASYBUILD_INSTALLPATH", "/work/attempt-1"),
+            ("EASYBUILD_INSTALLPATH_MODULES", "/work/modules"),
+        ]),
+        "/work/modules/all:/site/modules\n/work/modules/all:/site/extra\n"
+    );
+    assert_eq!(with(&[]), "/site/modules\n/site/extra\n");
+}
+
+#[test]
 fn doctor_easybuild_probe_sets_tmpdir_and_workload_environment() {
     let mut environment = BTreeMap::new();
     environment.insert("MUST".into(), "1".into());

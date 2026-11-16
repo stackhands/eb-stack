@@ -1600,3 +1600,64 @@ fn two_identical_signatures_are_stuck() {
     state.findings.push(finding(2));
     assert!(is_stuck_on_signature(&state, &signature));
 }
+
+/// Each attempt installs into its own prefix, so `module load {module}`
+/// finds the build only through that prefix's module tree. The EESSI init
+/// replaces `MODULEPATH` and keeps only `EESSI_EXTRA_MODULEPATH`.
+#[test]
+fn a_verification_command_loads_the_module_the_attempt_installed() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let bundle = temp.path().join("bundle");
+    let recipes = bundle.join("easyconfigs/e/eOn");
+    std::fs::create_dir_all(&recipes).expect("recipes");
+    std::fs::create_dir_all(bundle.join("locks")).expect("locks");
+    let module_load = r#"IFS=:; for tree in $MODULEPATH; do [ -f "$tree/{module}.lua" ] && exit 0; done; echo "The following module(s) are unknown: {module}" >&2; exit 1"#;
+    let eessi_init =
+        "MODULEPATH=/cvmfs/software.eessi.io/init/modules${EESSI_EXTRA_MODULEPATH:+:$EESSI_EXTRA_MODULEPATH}";
+    let manifest = serde_json::json!({
+        "package": {"name": "eOn", "version": "2.16.0"},
+        "build": {"toolchain": {"name": "foss", "version": "2026.1"}},
+        "profiles": [{
+            "name": "default",
+            "default": true,
+            "versionsuffix": [],
+            "verification_commands": [
+                {"program": "sh", "args": ["-c", module_load]},
+                {"program": "sh", "args": ["-c", format!("{eessi_init}; {module_load}")]},
+            ],
+        }],
+    });
+    std::fs::write(
+        bundle.join("package.plan.json"),
+        serde_json::to_string(&manifest).expect("manifest JSON"),
+    )
+    .expect("manifest");
+    std::fs::write(
+        bundle.join("locks/default.lock.json"),
+        r#"{"profile":"default","solver":"resolvo"}"#,
+    )
+    .expect("lock");
+    write_valid_recipe(&recipes.join("eOn.eb"), "eOn", "2.16.0");
+    let eb = temp.path().join("fake-eb");
+    write_executable(
+        &eb,
+        "#!/bin/sh\nfor arg do\n  case $arg in --installpath=*) prefix=${arg#--installpath=} ;; esac\ndone\nmkdir -p \"$prefix/modules/all/eOn\"\necho 'whatis(\"eOn\")' > \"$prefix/modules/all/eOn/2.16.0-foss-2026.1.lua\"\n",
+    )
+    .expect("fake eb");
+    let mut builder = target(eb.to_str().expect("eb path"));
+    builder.easybuild.work_root = temp.path().join("work").display().to_string();
+
+    let state = run_campaign(&CampaignRequest {
+        bundle,
+        target: builder,
+        state_path: temp.path().join("campaign.json"),
+    })
+    .expect("campaign");
+    assert_eq!(
+        state.status,
+        CampaignStatus::Completed,
+        "{:#?}",
+        state.findings
+    );
+    assert!(state.claims.binary_verified);
+}

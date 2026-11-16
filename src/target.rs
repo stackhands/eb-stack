@@ -541,14 +541,47 @@ impl BuildTarget {
     ///
     /// Uses the same workload prefix as a build: `EASYBUILD_TMPDIR` and the
     /// target environment. Wrapper variables are scrubbed only when `program`
-    /// is EasyBuild itself.
+    /// is EasyBuild itself. With `EASYBUILD_INSTALLPATH` set, the module tree
+    /// under it goes first on `MODULEPATH` and on `EESSI_EXTRA_MODULEPATH`,
+    /// so `module load` finds what the build installed there.
     pub fn verification_command(&self, program: &str, args: &[String]) -> CommandPlan {
         let scrub_wrappers =
             self.should_scrub_compiler_wrappers() && self.is_easybuild_program(program);
         let mut tokens = self.easybuild_workload_prefix(scrub_wrappers);
+        if let Some(tree) = self.installed_module_tree() {
+            tokens.extend([
+                "sh".into(),
+                "-c".into(),
+                PREPEND_MODULE_TREE.into(),
+                "sh".into(),
+                tree,
+            ]);
+        }
         tokens.push(program.to_string());
         tokens.extend(args.iter().cloned());
         self.route_tokens(self.runtime_tokens(tokens), true)
+    }
+
+    /// Where EasyBuild writes module files for `EASYBUILD_INSTALLPATH`.
+    ///
+    /// `EASYBUILD_INSTALLPATH_MODULES` replaces `<installpath>/<subdir>`, as
+    /// in EasyBuild's own `install_path('mod')`.
+    fn installed_module_tree(&self) -> Option<String> {
+        let environment = &self.easybuild.environment;
+        let installpath = environment.get("EASYBUILD_INSTALLPATH")?;
+        let base = match environment.get("EASYBUILD_INSTALLPATH_MODULES") {
+            Some(modules) => modules.clone(),
+            None => {
+                let subdir = environment
+                    .get("EASYBUILD_SUBDIR_MODULES")
+                    .map_or("modules", String::as_str);
+                format!("{installpath}/{subdir}")
+            }
+        };
+        let suffix = environment
+            .get("EASYBUILD_SUFFIX_MODULES_PATH")
+            .map_or("all", String::as_str);
+        Some(format!("{base}/{suffix}"))
     }
 
     /// `env` prefix shared by builds, verification, and the doctor EasyBuild probe.
@@ -942,6 +975,19 @@ fn is_compiler_wrapper_env(name: &str) -> bool {
         || name.starts_with("CCACHE_")
         || (name.starts_with("CMAKE_") && name.ends_with("_COMPILER_LAUNCHER"))
 }
+
+/// Puts `$1` first on `MODULEPATH` and on `EESSI_EXTRA_MODULEPATH`, then
+/// execs the remaining arguments.
+///
+/// It runs on the target, so both values extend the ones there. The EESSI
+/// init replaces `MODULEPATH` and keeps `EESSI_EXTRA_MODULEPATH`, after the
+/// EESSI module trees.
+const PREPEND_MODULE_TREE: &str = r#"tree=$1
+shift
+MODULEPATH="$tree${MODULEPATH:+:$MODULEPATH}"
+EESSI_EXTRA_MODULEPATH="$tree${EESSI_EXTRA_MODULEPATH:+:$EESSI_EXTRA_MODULEPATH}"
+export MODULEPATH EESSI_EXTRA_MODULEPATH
+exec "$@""#;
 
 #[derive(Debug, Error)]
 /// Why a target could not be configured or reached.

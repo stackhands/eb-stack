@@ -1597,10 +1597,13 @@ Read the campaign while it runs, from another shell:
 eb-stack campaign status --state /tmp/eb-stack/bundles/eon-tutorial.campaign.json
 ```
 
-The modules land under
-`$EESSI_USER_INSTALL/versions/2026.06/software/linux/$EESSI_SOFTWARE_SUBDIR/modules/all`,
-so a second CPU target gets its own tree, and each host loads the build for
-its own architecture.
+The campaign installs each attempt into its own prefix,
+`<work_root>/install-attempts/eOn-2.17.10/attempt-<N>`, and passes it to `eb`
+as `--installpath`, which takes precedence over the path `EESSI-extend`
+derives from `$EESSI_USER_INSTALL`. The modules land under `modules/all` in
+that prefix, and the verification commands find them there. Unlike the
+`$EESSI_USER_INSTALL` tree, which has one directory per
+`$EESSI_SOFTWARE_SUBDIR`, that path does not name the CPU target.
 
 # Develop eOn from a working tree
 
@@ -8603,7 +8606,10 @@ eb-stack campaign finding resolve \
 
 `campaign run` resumes state with matching package identity, increments the
 attempt, stages the bundle, runs every emitted recipe, and executes each
-profile's verification commands. Transport, executor, runtime, interrupted,
+profile's verification commands. Each attempt installs into its own prefix
+under `<work_root>/install-attempts/`, and its verification commands find
+that prefix's modules first, as [the target reference](https://eb-stack.rgoswami.me/targets.html.md)
+describes. Transport, executor, runtime, interrupted,
 checksum, patch, dependency, configure, compile, link, test, install, sanity,
 resource, timeout, and unknown failures are persisted as typed findings.
 
@@ -9894,6 +9900,23 @@ linker flags into EasyBuild recipes.
 The routed build command adds `--robot=<colon-separated paths>` and
 `--buildpath=<work_root>/build`. Later robot roots override earlier recipes
 with the same EasyBuild identity.
+
+A campaign gives each attempt its own prefix. It sets `EASYBUILD_INSTALLPATH`
+to `<work_root>/install-attempts/<package>-<version>/attempt-<N>`, and the
+build command passes that as `--installpath`. The flag takes precedence over
+an install path from the environment, such as the one `EESSI-extend` derives
+from `EESSI_USER_INSTALL`, so a campaign does not install into that prefix.
+
+A verification command runs with the module tree of `EASYBUILD_INSTALLPATH`
+first on `MODULEPATH` and on `EESSI_EXTRA_MODULEPATH`. The tree is
+`<installpath>/modules/all` unless the environment sets
+`EASYBUILD_INSTALLPATH_MODULES`, `EASYBUILD_SUBDIR_MODULES`, or
+`EASYBUILD_SUFFIX_MODULES_PATH`. So `module load {module}` finds the attempt's
+module, also after the EESSI init, which replaces `MODULEPATH` and keeps
+`EESSI_EXTRA_MODULEPATH`. That init puts its own trees first, so a module
+EESSI also provides loads from EESSI. To load the attempt's build instead,
+run `module use $EASYBUILD_INSTALLPATH/modules/all` after the init and before
+`module load EESSI-extend`, which sets `EASYBUILD_INSTALLPATH` again.
 
 Treat `EASYBUILD_PARALLEL` and the executor allocation as one resource
 contract. Parallel C++ compiler processes can each consume more than a

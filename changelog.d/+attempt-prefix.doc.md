@@ -1,0 +1,1 @@
+The target reference and the eOn on EESSI how-to say that each campaign attempt installs into `<work_root>/install-attempts/<package>-<version>/attempt-<N>`, which takes precedence over the prefix EESSI-extend derives from `EESSI_USER_INSTALL`.

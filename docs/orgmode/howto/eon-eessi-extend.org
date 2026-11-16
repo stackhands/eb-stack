@@ -105,10 +105,13 @@ Read the campaign while it runs, from another shell:
 eb-stack campaign status --state /tmp/eb-stack/bundles/eon-tutorial.campaign.json
 #+end_src
 
-The modules land under
-~$EESSI_USER_INSTALL/versions/2026.06/software/linux/$EESSI_SOFTWARE_SUBDIR/modules/all~,
-so a second CPU target gets its own tree, and each host loads the build for
-its own architecture.
+The campaign installs each attempt into its own prefix,
+~<work_root>/install-attempts/eOn-2.17.10/attempt-<N>~, and passes it to ~eb~
+as ~--installpath~, which takes precedence over the path ~EESSI-extend~
+derives from ~$EESSI_USER_INSTALL~. The modules land under ~modules/all~ in
+that prefix, and the verification commands find them there. Unlike the
+~$EESSI_USER_INSTALL~ tree, which has one directory per
+~$EESSI_SOFTWARE_SUBDIR~, that path does not name the CPU target.
 
 * Develop eOn from a working tree
 

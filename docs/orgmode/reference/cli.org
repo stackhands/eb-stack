@@ -1944,7 +1944,10 @@ eb-stack campaign finding resolve \
 
 ~campaign run~ resumes state with matching package identity, increments the
 attempt, stages the bundle, runs every emitted recipe, and executes each
-profile's verification commands. Transport, executor, runtime, interrupted,
+profile's verification commands. Each attempt installs into its own prefix
+under ~<work_root>/install-attempts/~, and its verification commands find
+that prefix's modules first, as [[file:targets.org][the target reference]]
+describes. Transport, executor, runtime, interrupted,
 checksum, patch, dependency, configure, compile, link, test, install, sanity,
 resource, timeout, and unknown failures are persisted as typed findings.
 
