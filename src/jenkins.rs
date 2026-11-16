@@ -379,7 +379,7 @@ CP2K-2025.1-foss-2025a.eb\n";
     #[test]
     fn a_list_regroups_under_the_previous_sections() {
         let sections = parse_sections(SECTIONED);
-        let list = "# Snel-2026 header\n\
+        let list = "# Site-2026 header\n\
 #\n\
 #### 2. Closure ####\n\
 # CP2K-2026.1-foss-2026.1.eb\n\
@@ -389,7 +389,7 @@ CP2K-2025.1-foss-2025a.eb\n";
 # SeisSol-1.3.1-foss-2026.1.eb\n";
         assert_eq!(
             group_by_sections(list, &sections, "New in this generation"),
-            "# Snel-2026 header\n\
+            "# Site-2026 header\n\
 #\n\
 \n\
 #### MPI Libraries ####\n\

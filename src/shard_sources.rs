@@ -337,7 +337,7 @@ mod tests {
     fn plain_source_options_are_supported() {
         for line in [
             format!("A-1.0.eb --from-commit={SHA}"),
-            format!("A-1.0.eb --from-commit {SHA} --include-systems=snel-zen2"),
+            format!("A-1.0.eb --from-commit {SHA} --include-systems=site-zen2"),
             format!("A-1.0.eb --robot --from-commit={SHA} --include-easyblocks-from-commit={SHA}"),
             format!("A-1.0.eb -r --rebuild --from-commit={SHA}"),
         ] {
@@ -387,7 +387,7 @@ mod tests {
             format!("A-1.0.eb --from-commit={SHA} --rob=/x"),
             format!("A-1.0.eb --from-c={SHA}"),
             format!("A-1.0.eb --from-commit={SHA} --try-toolchain=GCC,15.2.0"),
-            format!("A-1.0.eb --from-commit={SHA} --include-systems snel"),
+            format!("A-1.0.eb --from-commit={SHA} --include-systems site"),
             format!("A-1.0.eb --from-commit={SHA} -D"),
             format!("A-1.0.eb --from-commit={SHA} --consider-archived-easyconfigs"),
         ] {
@@ -399,11 +399,11 @@ mod tests {
     fn an_executable_line_drops_from_commit_and_appends_the_robot_paths() {
         assert_eq!(
             executable_line(
-                &format!("A-1.0.eb --from-commit={SHA} --include-systems=snel-zen2"),
+                &format!("A-1.0.eb --from-commit={SHA} --include-systems=site-zen2"),
                 Some("/out/sources/v1/x/A-1.0.eb"),
                 "/robot:/out/sources/v1/x"
             ),
-            "/out/sources/v1/x/A-1.0.eb --include-systems=snel-zen2 --robot-paths=/robot:/out/sources/v1/x"
+            "/out/sources/v1/x/A-1.0.eb --include-systems=site-zen2 --robot-paths=/robot:/out/sources/v1/x"
         );
         assert_eq!(
             executable_line(

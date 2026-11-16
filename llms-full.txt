@@ -5951,7 +5951,7 @@ reads each such line's tree there, downloading the ones it lacks:
 
 ```bash
 eb-stack stack shard \
-  --build-list Snel-2026e.list \
+  --build-list site-2026e.list \
   --easyconfigs easybuild-easyconfigs/easybuild/easyconfigs \
   --commit-cache /scratch-shared/$USER/eb-stack-commit-trees \
   --shards 4 \
@@ -5975,7 +5975,7 @@ clone (`git clone --filter=blob:none`) is enough:
 
 ```bash
 eb-stack stack shard \
-  --build-list Snel-2026e.list \
+  --build-list site-2026e.list \
   --easyconfigs easybuild-easyconfigs/easybuild/easyconfigs \
   --easyconfigs-repo easybuild-easyconfigs \
   --materialize \

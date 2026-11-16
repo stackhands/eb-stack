@@ -285,7 +285,7 @@ fn fetched_and_unparsed_lines_are_planned_as_opaque_lines() {
     // The opaque line is written to its shard as it stands, flags and all.
     let shard_file = format!("{}.list", fetched["shard"].as_str().unwrap());
     assert!(read(out.join(&shard_file)).contains(
-        "Bowtie2-2.5.5-GCC-15.2.0.eb --from-commit=e71b392cfab2449cb64f0ac5569cba75f0c5290d --include-systems=snel-zen2"
+        "Bowtie2-2.5.5-GCC-15.2.0.eb --from-commit=e71b392cfab2449cb64f0ac5569cba75f0c5290d --include-systems=site-zen2"
     ));
 }
 

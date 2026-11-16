@@ -4667,7 +4667,7 @@ mod tests {
                 root,
                 &format!(
                     "Alpha-1.0-GCCcore-15.2.0.eb\n\
-                     Fetched-1.0-GCCcore-15.2.0.eb --from-commit={SHA} --include-systems=snel-zen2\n\
+                     Fetched-1.0-GCCcore-15.2.0.eb --from-commit={SHA} --include-systems=site-zen2\n\
                      Other-1.0-GCCcore-15.2.0.eb --from-commit={SHA}\n"
                 ),
             );
@@ -4730,9 +4730,9 @@ mod tests {
             let mut args = request(
                 root,
                 &format!(
-                    "PETSc-3.25.0-GCCcore-15.2.0.eb --include-systems=snel-zen2\n\
+                    "PETSc-3.25.0-GCCcore-15.2.0.eb --include-systems=site-zen2\n\
                      MUMPS-5.8.1-GCCcore-15.2.0.eb\n\
-                     petsc4py-3.25.0-GCCcore-15.2.0.eb --from-commit={SHA} --include-systems=snel-zen2\n"
+                     petsc4py-3.25.0-GCCcore-15.2.0.eb --from-commit={SHA} --include-systems=site-zen2\n"
                 ),
             );
             args.commit_trees = vec![format!("{}={}", &SHA[..10], tree.display())];
@@ -4753,8 +4753,8 @@ mod tests {
             assert_eq!(
                 read(root.join(shard_file)),
                 format!(
-                    "PETSc-3.25.0-GCCcore-15.2.0.eb --include-systems=snel-zen2\n\
-                     petsc4py-3.25.0-GCCcore-15.2.0.eb --from-commit={SHA} --include-systems=snel-zen2\n"
+                    "PETSc-3.25.0-GCCcore-15.2.0.eb --include-systems=site-zen2\n\
+                     petsc4py-3.25.0-GCCcore-15.2.0.eb --from-commit={SHA} --include-systems=site-zen2\n"
                 )
             );
             let with_petsc = shard_modules(&plan)
