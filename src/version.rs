@@ -7,6 +7,12 @@
 //! separator that is dropped. Example: 1.0rc1 tokenizes to Num(1), Num(0),
 //! Alpha(rc), Num(1); 2025a tokenizes to Num(2025), Alpha(a).
 //!
+//! A leading D[D]MonYYYY date, as in a release named by its date, tokenizes
+//! as year, month, and day: 29Aug2024 is Num(2024), Num(8), Num(29), and
+//! sorts before 22Jul2025. An `update` right after the date is dropped and
+//! its number kept, so the stable update 22Jul2025_update4 sorts after
+//! 22Jul2025.
+//!
 //! Comparison walks both token sequences position by position, and a
 //! missing token reads as Num(0). Two Num tokens compare numerically; two
 //! Alpha tokens compare lexicographically (so 2025a is before 2025b). An
@@ -33,6 +39,45 @@ pub enum Part {
 /// alphabetic parts, dropping separator characters. See the module docs
 /// for the exact tokenization and comparison rules.
 pub fn parse_version_parts(v: &str) -> Vec<Part> {
+    let Some((date, rest)) = leading_date(v) else {
+        return tokenize(v);
+    };
+    let mut parts = date.map(Part::Num).to_vec();
+    let mut rest = tokenize(rest);
+    if let [Part::Alpha(word), Part::Num(_), ..] = rest.as_slice() {
+        if word == "update" {
+            rest.remove(0);
+        }
+    }
+    parts.extend(rest);
+    parts
+}
+
+const MONTHS: [&str; 12] = [
+    "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec",
+];
+
+/// `[year, month, day]` of a leading `D[D]MonYYYY` date, and what follows it.
+fn leading_date(v: &str) -> Option<([u64; 3], &str)> {
+    let day_len = v.bytes().take_while(u8::is_ascii_digit).count();
+    if !(1..=2).contains(&day_len) {
+        return None;
+    }
+    let (day, rest) = v.split_at(day_len);
+    let day: u64 = day.parse().ok()?;
+    let month = rest.get(..3)?;
+    let month = MONTHS
+        .iter()
+        .position(|name| name.eq_ignore_ascii_case(month))?;
+    let rest = &rest[3..];
+    if rest.bytes().take_while(u8::is_ascii_digit).count() != 4 || !(1..=31).contains(&day) {
+        return None;
+    }
+    let (year, rest) = rest.split_at(4);
+    Some(([year.parse().ok()?, month as u64 + 1, day], rest))
+}
+
+fn tokenize(v: &str) -> Vec<Part> {
     let mut parts = Vec::new();
     let mut chars = v.chars().peekable();
     while let Some(&c) = chars.peek() {
@@ -568,8 +613,23 @@ mod tests {
     #[test]
     fn the_order_is_total_so_a_sort_accepts_it() {
         let mut versions = vec![
-            "1.a", "1", "1.0", "1.0.1", "1.0rc1", "4.0.2", "4.0.2-1", "2025a", "2025.1", "0.9.0.4",
-            "v3", "3.6b", "3.6", "1.0.0", "20260522",
+            "1.a",
+            "1",
+            "1.0",
+            "1.0.1",
+            "1.0rc1",
+            "4.0.2",
+            "4.0.2-1",
+            "2025a",
+            "2025.1",
+            "0.9.0.4",
+            "v3",
+            "3.6b",
+            "3.6",
+            "1.0.0",
+            "20260522",
+            "29Aug2024",
+            "22Jul2025_update4",
         ];
         for a in &versions {
             for b in &versions {
@@ -594,5 +654,42 @@ mod tests {
         // nonzero.
         assert_eq!(cmp_version("1.2.3", "1.2"), Ordering::Greater);
         assert_eq!(cmp_version("1.2.0", "1.2"), Ordering::Equal);
+    }
+
+    #[test]
+    fn date_versions_order_by_release_date_then_update() {
+        let mut lammps = [
+            "22Jul2025_update4",
+            "29Aug2024",
+            "2Aug2023_update2",
+            "22Jul2025",
+            "28Oct2024",
+            "23Jun2022",
+            "29Aug2024_update2",
+        ];
+        lammps.sort_by(|a, b| cmp_version(a, b));
+        assert_eq!(
+            lammps,
+            [
+                "23Jun2022",
+                "2Aug2023_update2",
+                "29Aug2024",
+                "29Aug2024_update2",
+                "28Oct2024",
+                "22Jul2025",
+                "22Jul2025_update4",
+            ]
+        );
+        assert_eq!(cmp_version("22jul2025", "22Jul2025"), Ordering::Equal);
+        assert!(matches_req("22Jul2025_update4", ">=29Aug2024"));
+        assert!(!matches_req("29Aug2024", ">=22Jul2025"));
+        assert_eq!(
+            parse_version_parts("2Aug2023_update2"),
+            [Part::Num(2023), Part::Num(8), Part::Num(2), Part::Num(2)]
+        );
+        assert_eq!(
+            parse_version_parts("2July2025"),
+            [Part::Num(2), Part::Alpha("july".into()), Part::Num(2025)]
+        );
     }
 }
