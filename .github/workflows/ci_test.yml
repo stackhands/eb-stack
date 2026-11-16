@@ -31,6 +31,11 @@ jobs:
         run: |
           cargo test --locked --test no_helper_script
           cargo test --locked --test public_metadata
+      # A site's names and paths belong in its own configuration; release
+      # notes may name what a release removed.
+      - name: No site names in the tree
+        run: |
+          ! git grep -nIiE 'snellius|surf\.nl|/gpfs/|/projects/0|rg\.terra|scratch-shared|scratch-node|eblocalinstall' -- . ':!CHANGELOG.md' ':!changelog.d/' ':!tests/cli_ergonomics.rs' ':!.github/workflows/ci_test.yml'
       - name: Cargo source package
         run: cargo package --locked
 
