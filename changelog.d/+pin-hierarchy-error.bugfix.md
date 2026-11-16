@@ -1,0 +1,1 @@
+A pin on a package the trees have only outside the solve's toolchain hierarchy, in a `stack solve` policy or a `package plan` / `package bump` stack policy, now fails with the hierarchy searched and the toolchains the trees have the package on, instead of "unknown package" and "names a package with no candidate at all". A stack-policy exclusion gets the same message.

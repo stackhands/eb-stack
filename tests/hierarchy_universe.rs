@@ -352,6 +352,41 @@ fn a_pin_that_admits_nothing_is_named_ahead_of_the_pins_that_are_fine() {
     assert!(eb_stack::select::policy_constraints_report(&bare, &all).is_empty());
 }
 
+/// A pin on a package the tree has above the policy toolchain is not a pin on
+/// an unknown package. Calling it unknown sends the reader looking for a typo
+/// when the fix is the solve toolchain or the pin.
+#[test]
+fn a_pin_outside_the_hierarchy_says_where_the_package_is() {
+    let dir = tempfile::tempdir().unwrap();
+    tree(dir.path());
+    let policy_path = dir.path().join("policy.json");
+    fs::write(
+        &policy_path,
+        r#"{"toolchain": {"name": "GCCcore", "version": "15.2.0"},
+            "roots": ["CMake"], "objective": "prefer_newer",
+            "pins": [{"name": "FlexiBLAS", "version_req": "==3.5.0"}]}"#,
+    )
+    .unwrap();
+    let error = eb_stack::solve_from_easyconfigs_with_extras(
+        &[dir.path()],
+        &policy_path,
+        None,
+        &dir.path().join("stack.lock.json"),
+        None,
+        eb_stack::SolveExtraOut::default(),
+    )
+    .expect_err("a pin outside the hierarchy cannot be applied");
+    let message = format!("{error:#}");
+    assert!(!message.contains("unknown package"), "{message}");
+    assert!(!message.contains("no candidate at all"), "{message}");
+    assert!(
+        message.contains("pin FlexiBLAS ==3.5.0")
+            && message.contains("GCCcore-15.2.0 hierarchy")
+            && message.contains("on GCC-15.2.0"),
+        "name the pin, the hierarchy, and where the tree has it: {message}"
+    );
+}
+
 /// Identity became (name, toolchain level) in the provider and in the lock.
 /// ebstack-fqh7 names two things that read those keys and so move with it: the
 /// build list ordering and the SBOM dependency graph. Nothing asserted either,
