@@ -1,0 +1,1 @@
+A failed verification command is a `sanity` finding, or `timeout`, unless its output names a transport, executor, runtime, or resource cause, so an Lmod `error:` line no longer makes it `compile`. Finding summaries and campaign history name the class and exit status as the state file does, `sanity` and `exit 1`, not `Sanity` and `exit Some(1)`.
