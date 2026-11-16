@@ -33,8 +33,8 @@ pub struct ShardLine {
     pub text: String,
     /// The first word, the easyconfig filename.
     pub file: String,
-    /// Whether the line forces a rebuild (`--rebuild` or `--force`), so its
-    /// own module counts as not installed.
+    /// Whether the line forces a rebuild (`--rebuild`, `--force` or its short
+    /// form `-f`), so its own module counts as not installed.
     pub forced: bool,
     /// Whether EasyBuild fetches the line's easyconfig itself
     /// (`--from-pr` or `--from-commit`), so it need not be on the robot path.
@@ -139,7 +139,9 @@ pub fn parse_lines(text: &str) -> Vec<ShardLine> {
                 .iter()
                 .map(|w| w.split('=').next().unwrap_or(w))
                 .collect();
-            let forced = keys.iter().any(|k| *k == "--rebuild" || *k == "--force");
+            let forced = keys
+                .iter()
+                .any(|k| matches!(*k, "--rebuild" | "--force" | "-f"));
             let fetched = keys
                 .iter()
                 .any(|k| *k == "--from-pr" || *k == "--from-commit");
@@ -537,6 +539,13 @@ mod tests {
         assert_eq!(lines[1].file, "B-2.eb");
         assert!(lines[1].forced);
         assert!(!lines[0].fetched && !lines[1].fetched);
+    }
+
+    #[test]
+    fn rebuild_force_and_its_short_form_force_a_line() {
+        let lines = parse_lines("A-1.eb --rebuild\nB-2.eb --force\nC-3.eb -f\nD-4.eb --hooks=-f\n");
+        let forced: Vec<bool> = lines.iter().map(|line| line.forced).collect();
+        assert_eq!(forced, [true, true, true, false]);
     }
 
     #[test]
