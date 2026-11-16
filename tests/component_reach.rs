@@ -254,3 +254,124 @@ fn an_unsupported_purl_type_creates_no_output_directory() {
     );
     assert!(!out_dir.exists(), "left {}", out_dir.display());
 }
+
+/// Run `component-reach` for curl 8 on a tree of `(file, text)` recipes.
+fn reach_curl(files: &[(&str, &str)]) -> serde_json::Value {
+    let dir = tempfile::tempdir().expect("temp");
+    let tree = dir.path().join("easyconfigs");
+    std::fs::create_dir_all(&tree).expect("tree");
+    for (file, text) in files {
+        std::fs::write(tree.join(file), text).expect("recipe");
+    }
+    let out = dir.path().join("out");
+    let output = Command::new(env!("CARGO_BIN_EXE_eb-stack"))
+        .env_remove("EASYBUILD_FILTER_DEPS")
+        .args([
+            "component-reach",
+            "--component",
+            "curl",
+            "--version",
+            ">=8,<9",
+            "--generation",
+            "2026.1",
+            "--easyconfigs",
+        ])
+        .arg(&tree)
+        .args(["--generated-at", "2026-10-22T12:00:00Z", "--out-dir"])
+        .arg(&out)
+        .output()
+        .expect("run");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    serde_json::from_str(&std::fs::read_to_string(out.join("component-reach.json")).unwrap())
+        .unwrap()
+}
+
+const CURL: (&str, &str) = (
+    "cURL-8.17.0-GCCcore-15.2.0.eb",
+    "name = 'cURL'\nversion = '8.17.0'\ntoolchain = {'name': 'GCCcore', 'version': '15.2.0'}\n",
+);
+const R_ON_GFBF: (&str, &str) = (
+    "R-4.6.1-gfbf-2026.1.eb",
+    "name = 'R'\nversion = '4.6.1'\ntoolchain = {'name': 'gfbf', 'version': '2026.1'}\ndependencies = [('cURL', '8.17.0')]\n",
+);
+const NETCDF_ON_GOMPI: (&str, &str) = (
+    "netCDF-4.10.0-gompi-2026.1.eb",
+    "name = 'netCDF'\nversion = '4.10.0'\ntoolchain = {'name': 'gompi', 'version': '2026.1'}\ndependencies = [('cURL', '8.17.0')]\n",
+);
+const GDAL_ON_FOSS: (&str, &str) = (
+    "GDAL-3.13.0-foss-2026.1.eb",
+    "name = 'GDAL'\nversion = '3.13.0'\ntoolchain = {'name': 'foss', 'version': '2026.1'}\ndependencies = [('cURL', '8.17.0')]\n",
+);
+
+fn closure_dependents(json: &serde_json::Value) -> Vec<String> {
+    let mut dependents: Vec<String> = json["closure_rows"]
+        .as_array()
+        .expect("closure_rows")
+        .iter()
+        .map(|row| {
+            format!(
+                "{} {}",
+                row["dependent"].as_str().unwrap(),
+                row["edge_kind"].as_str().unwrap()
+            )
+        })
+        .collect();
+    dependents.sort();
+    dependents
+}
+
+/// gfbf and gompi have no built-in hierarchy; it is derived from their
+/// definition recipes, which are SYSTEM recipes outside the generation.
+#[test]
+fn dependents_on_every_toolchain_of_the_generation_are_in_the_closure() {
+    let json = reach_curl(&[
+        CURL,
+        R_ON_GFBF,
+        NETCDF_ON_GOMPI,
+        GDAL_ON_FOSS,
+        (
+            "gfbf-2026.1.eb",
+            "name = 'gfbf'\nversion = '2026.1'\ntoolchain = SYSTEM\ndependencies = [('GCC', '15.2.0'), ('FlexiBLAS', '3.5.0', '', ('GCC', '15.2.0'))]\n",
+        ),
+        (
+            "gompi-2026.1.eb",
+            "name = 'gompi'\nversion = '2026.1'\ntoolchain = SYSTEM\ndependencies = [('GCC', '15.2.0'), ('OpenMPI', '5.0.10', '', ('GCC', '15.2.0'))]\n",
+        ),
+    ]);
+    assert_eq!(
+        closure_dependents(&json),
+        [
+            "GDAL/3.13.0-foss-2026.1 runtime",
+            "R/4.6.1-gfbf-2026.1 runtime",
+            "cURL/8.17.0-GCCcore-15.2.0 changed",
+            "netCDF/4.10.0-gompi-2026.1 runtime",
+        ],
+        "{json:#}"
+    );
+}
+
+/// Without the gfbf and gompi definitions their recipes cannot resolve cURL.
+/// The closure then lacks them, and the report has to say so.
+#[test]
+fn a_dependency_the_closure_cannot_resolve_is_listed() {
+    let json = reach_curl(&[CURL, R_ON_GFBF, NETCDF_ON_GOMPI, GDAL_ON_FOSS]);
+    let unresolved: Vec<&str> = json["closure_unresolved"]
+        .as_array()
+        .expect("closure_unresolved")
+        .iter()
+        .filter_map(|requirement| requirement.as_str())
+        .collect();
+    for requirement in [
+        "R/4.6.1-gfbf-2026.1 needs cURL ==8.17.0",
+        "netCDF/4.10.0-gompi-2026.1 needs cURL ==8.17.0",
+    ] {
+        assert!(
+            unresolved.contains(&requirement),
+            "{requirement} not in {unresolved:#?}"
+        );
+    }
+}

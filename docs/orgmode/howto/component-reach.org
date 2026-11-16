@@ -50,7 +50,7 @@ eb-stack component-reach \
 The command prints:
 
 #+begin_example
-component=curl version=>=8,<9 generation=2026.1 reach=network-facing carriers=23 changed=2 must-rebuild=1 review=106 no-rebuild=16 out=/tmp/component-reach-full
+component=curl version=>=8,<9 generation=2026.1 reach=network-facing carriers=23 changed=2 must-rebuild=1 review=133 no-rebuild=20 out=/tmp/component-reach-full
 #+end_example
 
 The changed files are ~cURL-8.17.0-GCCcore-15.2.0.eb~ and ~cargo-c-0.10.23-GCCcore-15.2.0.eb~.
@@ -164,6 +164,14 @@ The closure is the rebuild set of the containing recipes, inside the
 generation. Classes are the same as ~rebuild-set~: ~must-rebuild~,
 ~review~, and ~no-rebuild~. This command does not read a prefix or scan
 static symbols.
+
+Dependencies resolve over every recipe in the trees, so a recipe on
+~gfbf-2026.1~ or ~gompi-2026.1~ reaches the ~GCCcore-15.2.0~ cURL through
+the SYSTEM definition of its toolchain. A dependency that no recipe
+resolves is listed in ~closure_unresolved~ in the JSON and TOML files, as
+the module and the requirement, and the closure has no edge for it.
+Without ~--filter-deps~, a stack that takes ~zlib~ or ~binutils~ from its
+compatibility layer lists them for every recipe that names them.
 
 * Read the three files
 

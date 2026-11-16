@@ -1895,6 +1895,10 @@ With no ~--easystack~, every easyconfig in the generation is the stack.
 With no ~--installed~, every module in the generation is treated as
 installed. Pass both to visit only a mounted prefix. The closure classes
 are the same as ~rebuild-set~, and they stay inside the generation.
+Dependencies resolve over every recipe in the trees, so the SYSTEM
+definitions a ~gfbf~ or ~gompi~ hierarchy is read from count. A dependency
+that no recipe resolves is listed in ~closure_unresolved~, and the closure
+has no edge for it.
 
 The output directory contains ~component-reach.toml~, ~component-reach.json~,
 and ~component-reach.md~. The TOML file starts with
