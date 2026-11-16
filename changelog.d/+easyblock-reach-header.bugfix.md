@@ -1,0 +1,1 @@
+`easyblock-reach` heads `reach.toml` and `reach.md` with a line that says only that `eb-stack easyblock-reach` generated the file, instead of the `pr-overlap` warning about a data branch that is never merged. The report is written to `--out-dir`, and no branch holds it.
