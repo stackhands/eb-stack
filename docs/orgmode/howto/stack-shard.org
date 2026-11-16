@@ -88,6 +88,14 @@ in that file. ~--weights~ is ~Name/VersionFull~ or the easyconfig
 filename, a tab, then seconds. A module the file does not list weighs
 ~--default-weight~, which is 1. Build the prelude, then the shards.
 
+On an EESSI build host, shard with the dependency filter the build
+uses. EESSI-extend sets ~EASYBUILD_FILTER_DEPS~ to the packages EESSI
+takes from its compatibility layer, such as binutils, zlib and XZ, and
+~stack shard~ reads that variable when ~--filter-deps~ is absent. When
+planning without that module loaded, pass the same comma-separated
+list as ~--filter-deps~. Otherwise those packages count as missing, and
+the ones several shards share land in the prelude.
+
 * Lift CPU-only prerequisites of accelerator roots
 
 EESSI installs accelerator packages under an ~/accel/~ prefix and

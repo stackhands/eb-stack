@@ -8,7 +8,7 @@
 //! `R-bundle-CRAN`.
 //!
 //! Expansion is idempotent. Synthetic candidates are marked by
-//! [`crate::domain::Candidate::EXT_PROVIDE_MARKER`] in `easyconfig_path` and
+//! [`EXT_PROVIDE_MARKER`] in `easyconfig_path` and
 //! depend on the parent bundle at its exact version.
 
 use crate::domain::{Candidate, DepReq, ExtEntry};

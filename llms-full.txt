@@ -1181,7 +1181,10 @@ toolchain-built extensions and has no claim on the European Environment for Scie
 # Inputs
 
 1. Warehouse-shaped JSON (`info` + `urls`) or a `requirements.txt`;
-2. the EESSI robot tree (or a fixture that mirrors its provides);
+2. the EESSI robot tree (or a fixture that mirrors its provides), passed
+   as `--easyconfigs`. It is the easyconfigs directory bundled with EESSI's
+   EasyBuild: `$EBROOTEASYBUILD/easybuild/easyconfigs` after loading
+   EESSI's `EasyBuild` module;
 3. a stack policy that **locks** `Python`, `SciPy-bundle`, and
    `Python-bundle-PyPI` to the versions in the robot.
    See `examples/stacks/eessi-python-extras.toml`.
@@ -1341,7 +1344,10 @@ dependency on the EasyBuild `R` module. Packages already listed in
 # Inputs
 
 1. a DESCRIPTION file, `cran.json`, or a one-spec-per-line package list;
-2. the European Environment for Scientific Software Installations (EESSI) robot tree;
+2. the European Environment for Scientific Software Installations (EESSI) robot tree,
+   passed as `--easyconfigs`. It is the easyconfigs directory bundled with
+   EESSI's EasyBuild: `$EBROOTEASYBUILD/easybuild/easyconfigs` after
+   loading EESSI's `EasyBuild` module;
 3. a stack policy that locks `R` and `R-bundle-CRAN` to the versions
    in the robot. See `examples/stacks/eessi-r-extras.toml`.
 
@@ -5855,6 +5861,14 @@ in that file. `--weights` is `Name/VersionFull` or the easyconfig
 filename, a tab, then seconds. A module the file does not list weighs
 `--default-weight`, which is 1. Build the prelude, then the shards.
 
+On an EESSI build host, shard with the dependency filter the build
+uses. EESSI-extend sets `EASYBUILD_FILTER_DEPS` to the packages EESSI
+takes from its compatibility layer, such as binutils, zlib and XZ, and
+`stack shard` reads that variable when `--filter-deps` is absent. When
+planning without that module loaded, pass the same comma-separated
+list as `--filter-deps`. Otherwise those packages count as missing, and
+the ones several shards share land in the prelude.
+
 # Lift CPU-only prerequisites of accelerator roots
 
 EESSI installs accelerator packages under an `/accel/` prefix and
@@ -8923,7 +8937,7 @@ plus sandboxed recipe and easyblock tools:
 - `eb_stack_solve`, `eb_stack_sbom`, `eb_stack_order`,
   `eb_stack_easystack`, `eb_stack_gap`, `eb_stack_provided`,
   `eb_stack_shadow`, `eb_stack_batch`, `eb_stack_shard`, `eb_stack_capacity`,
-  `eb_stack_arch`, `eb_stack_files`,
+  `eb_stack_footprints`, `eb_stack_admit`, `eb_stack_arch`, `eb_stack_files`,
   `eb_stack_generation`, `eb_stack_cuda_cc`, `eb_stack_known_failures`,
   `eb_stack_oom`, `eb_stack_bot_classify`, `eb_stack_sections`,
   `eb_stack_from_commit`;

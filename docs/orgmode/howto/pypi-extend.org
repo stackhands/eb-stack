@@ -17,7 +17,10 @@ toolchain-built extensions and has no claim on the European Environment for Scie
 * Inputs
 
 1. Warehouse-shaped JSON (~info~ + ~urls~) or a ~requirements.txt~;
-2. the EESSI robot tree (or a fixture that mirrors its provides);
+2. the EESSI robot tree (or a fixture that mirrors its provides), passed
+   as ~--easyconfigs~. It is the easyconfigs directory bundled with EESSI's
+   EasyBuild: ~$EBROOTEASYBUILD/easybuild/easyconfigs~ after loading
+   EESSI's ~EasyBuild~ module;
 3. a stack policy that *locks* ~Python~, ~SciPy-bundle~, and
    ~Python-bundle-PyPI~ to the versions in the robot.
    See ~examples/stacks/eessi-python-extras.toml~.

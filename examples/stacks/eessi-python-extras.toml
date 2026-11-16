@@ -11,10 +11,10 @@ version = "2026.1"
 
 # [[pins]]
 # name = "SciPy-bundle"
-# version_requirement = "==2025.06"
+# version_requirement = "==2026.05"
 # mode = "locked"
 #
 # [[pins]]
 # name = "Python-bundle-PyPI"
-# version_requirement = "==2025.04"
+# version_requirement = "==2026.04"
 # mode = "locked"

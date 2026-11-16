@@ -10,10 +10,10 @@ version = "2026.1"
 
 # [[pins]]
 # name = "R"
-# version_requirement = "==4.4.2"
+# version_requirement = "==4.6.1"
 # mode = "locked"
 #
 # [[pins]]
 # name = "R-bundle-CRAN"
-# version_requirement = "==2025.06"
+# version_requirement = "==2026.07"
 # mode = "locked"

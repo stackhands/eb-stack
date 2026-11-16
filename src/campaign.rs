@@ -86,7 +86,7 @@ pub enum BuildFindingClass {
     /// The job exceeded its time limit.
     Timeout,
     /// The output did not match any known signature. Left unclassified
-    ///     /// rather than guessed at, so it reaches a human.
+    /// rather than guessed at, so it reaches a human.
     Unknown,
 }
 
@@ -164,7 +164,7 @@ pub struct BuildFinding {
     /// The command that failed, so it can be rerun by hand.
     pub command: CommandPlan,
     /// Exit status, when the process produced one. Absent when it was
-    ///     /// killed or never started.
+    /// killed or never started.
     pub exit_code: Option<i32>,
     /// Attempt number this arose on.
     pub attempt: u32,
