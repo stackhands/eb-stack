@@ -268,7 +268,11 @@ fn show_tells_a_started_record_from_its_finished_one() {
         let mut value = record("pigz/2.8-GCCcore-15.2.0", "eb-staged-rebuild/7");
         value["action"] = json!("rebuild-inplace");
         value["stage"] = json!(stage);
-        append(&fixture, &value, &fixture.work.join(format!("head-{n}.json")));
+        append(
+            &fixture,
+            &value,
+            &fixture.work.join(format!("head-{n}.json")),
+        );
     }
     append(
         &fixture,
@@ -285,7 +289,11 @@ fn show_tells_a_started_record_from_its_finished_one() {
         ["index", "ts", "action", "stage", "target", "module", "actor"],
         "{show}"
     );
-    assert_eq!(rows[1][..4], ["2", "2026-11-03T10:00:00Z", "install", ""], "{show}");
+    assert_eq!(
+        rows[1][..4],
+        ["2", "2026-11-03T10:00:00Z", "install", ""],
+        "{show}"
+    );
     assert_eq!(
         rows[2][..4],
         ["1", "2026-11-03T10:00:00Z", "rebuild-inplace", "finished"],
