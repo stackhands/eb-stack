@@ -785,7 +785,9 @@ toolchain whose version is that generation, or on the system toolchain),
 ~open-easyconfigs~ (an ~--open-easyconfigs~ pull request adds a recipe at
 that generation; the match is the filename, and a toolchain version equal
 to ~--generation~ counts), or ~no-recipe~ (the newest easyconfig on any
-toolchain is named as the bump source). ~--eessi-version~ keeps
+toolchain is named as the bump source; between builds of that version, one
+on a toolchain family of the generation comes first, then the one on the
+newest toolchain generation). ~--eessi-version~ keeps
 ~--open-layer~ easystacks of that version; without it every easystack
 version counts. The command writes ~gap.tsv~, one TSV per
 route (~site-only.tsv~ for ~excluded~, ~bump.tsv~ for ~no-recipe~, and
