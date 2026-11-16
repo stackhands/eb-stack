@@ -51,7 +51,7 @@ Canonical contribution docs: https://docs.easybuild.io/contributing/
 
 ## Canonical sequence (do this order)
 
-On the **configured EasyBuild host** (for this site: `rg.terra`, not the
+On the **configured EasyBuild host** (the site's build host, not the
 laptop; not a random host without the foss generation installed):
 
 ```sh

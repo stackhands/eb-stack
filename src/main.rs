@@ -1679,12 +1679,12 @@ enum StackCommand {
     /// `inode_footprint` and `max_concurrent_shards`, the most shards that
     /// fit under the quota minus `--inode-margin` at once.
     #[command(
-        after_long_help = "Examples:\n  eb-stack stack shard --build-list rome.list --easyconfigs easybuild-easyconfigs/easybuild/easyconfigs --easyconfigs site-easyconfigs --installed-modules-dir /cvmfs/software.eessi.io/versions/2026.06/software/linux/x86_64/amd/zen2/modules/all --installed-modules-dir site-modules/all --shards 4 --weights build-seconds.tsv --out-dir shards\n  eb-stack stack shard --build-list rome.list --easyconfigs easybuild-easyconfigs/easybuild/easyconfigs --commit-cache /scratch-shared/$USER/eb-stack-commit-trees --shards 4 --out-dir shards\n  eb-stack stack shard --build-list rome.list --easyconfigs easybuild-easyconfigs/easybuild/easyconfigs --easyconfigs-repo easybuild-easyconfigs --materialize --build-robot-path /sw/easybuild/easyconfigs --shards 4 --out-dir shards"
+        after_long_help = "Examples:\n  eb-stack stack shard --build-list zen2.list --easyconfigs easybuild-easyconfigs/easybuild/easyconfigs --easyconfigs site-easyconfigs --installed-modules-dir /cvmfs/software.eessi.io/versions/2026.06/software/linux/x86_64/amd/zen2/modules/all --installed-modules-dir site-modules/all --shards 4 --weights build-seconds.tsv --out-dir shards\n  eb-stack stack shard --build-list zen2.list --easyconfigs easybuild-easyconfigs/easybuild/easyconfigs --commit-cache $SCRATCH/eb-stack-commit-trees --shards 4 --out-dir shards\n  eb-stack stack shard --build-list zen2.list --easyconfigs easybuild-easyconfigs/easybuild/easyconfigs --easyconfigs-repo easybuild-easyconfigs --materialize --build-robot-path /sw/easybuild/easyconfigs --shards 4 --out-dir shards"
     )]
     Shard(Box<ShardArgs>),
     /// Inspect timestamped advisory scheduler capacity without placing jobs.
     #[command(
-        after_long_help = "Examples:\n  eb-stack stack capacity --snapshot capacity.json --partition compute --target example/host --feature scratch-node --cpus 4 --memory-mib 4096 --exclusive-node true --max-slots-per-node 1 --generated-at 2026-01-01T12:00:10Z --max-age-seconds 60"
+        after_long_help = "Examples:\n  eb-stack stack capacity --snapshot capacity.json --partition compute --target example/host --feature local-disk --cpus 4 --memory-mib 4096 --exclusive-node true --max-slots-per-node 1 --generated-at 2026-01-01T12:00:10Z --max-age-seconds 60"
     )]
     Capacity(Box<CapacityArgs>),
     /// Write the peak build-tree inode footprint per software name.

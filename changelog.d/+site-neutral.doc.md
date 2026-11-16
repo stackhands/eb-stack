@@ -1,0 +1,1 @@
+The `stack shard` and `stack capacity` help examples, the shard how-to, the capacity reference and the skills name a neutral example site, not one cluster: a `zen2.list` or `zen4.list` build list, a commit cache under `$SCRATCH`, the node feature `local-disk`, and the site's build host.

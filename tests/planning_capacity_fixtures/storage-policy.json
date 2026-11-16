@@ -2,7 +2,7 @@
   "capacity_sha256": "aaa0baa0e64a1b06d4aeb27960ceae593e16f6c417d6392a501e9367c7dc112b",
   "capacity_snapshot": "snapshot.json",
   "max_age_seconds": 60,
-  "node_local_feature": "scratch-node",
+  "node_local_feature": "local-disk",
   "profiles": {
     "cpu_prerequisites": {
       "compile_target": "example/host",
@@ -10,7 +10,7 @@
         "cpus": 4,
         "exclusive_node": true,
         "features": [
-          "scratch-node"
+          "local-disk"
         ],
         "gpus": 0,
         "host_target": "example/host",
@@ -37,7 +37,7 @@
         "cpus": 4,
         "exclusive_node": true,
         "features": [
-          "scratch-node"
+          "local-disk"
         ],
         "gpus": 0,
         "host_target": "example/host",
@@ -64,7 +64,7 @@
         "cpus": 4,
         "exclusive_node": true,
         "features": [
-          "scratch-node"
+          "local-disk"
         ],
         "gpus": 0,
         "host_target": "example/host",

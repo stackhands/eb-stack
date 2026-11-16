@@ -31,6 +31,11 @@ jobs:
         run: |
           cargo test --locked --test no_helper_script
           cargo test --locked --test public_metadata
+      # A site's names and paths belong in its own configuration; release
+      # notes may name what a release removed.
+      - name: No site names in the tree
+        run: |
+          ! git grep -nIiE 'snellius|surf\.nl|/gpfs/|/projects/0|rg\.terra|scratch-shared|scratch-node|eblocalinstall' -- . ':!CHANGELOG.md' ':!changelog.d/' ':!tests/cli_ergonomics.rs' ':!.github/workflows/ci_test.yml'
       - name: Cargo source package
         run: cargo package --locked
 
@@ -343,7 +348,7 @@ jobs:
           fi
           "$BIN" --version
           "$BIN" stack capacity --snapshot tests/planning_capacity_fixtures/snapshot.json \
-            --partition local --target example/host --feature scratch-node \
+            --partition local --target example/host --feature local-disk \
             --cpus 4 --memory-mib 4096 --exclusive-node true --max-slots-per-node 1 \
             --generated-at 2026-01-01T12:00:10Z --max-age-seconds 60 \
             > target/portable-capacity-check.json

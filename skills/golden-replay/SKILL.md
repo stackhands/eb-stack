@@ -51,4 +51,4 @@ establish `builds`.
 See `skills/annual-bump/SKILL.md` for the bump command.
 See `skills/verify-recipe/SKILL.md` for checksum class and source claims.
 See `skills/tool-repair/SKILL.md` when emit disagrees with the golden.
-See `skills/site-consume/SKILL.md` for site generation and eblocalinstall.
+See `skills/site-consume/SKILL.md` for site generation and building a recipe at a site.
