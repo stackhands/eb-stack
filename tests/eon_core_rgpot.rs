@@ -13,7 +13,9 @@
 use eb_stack::{
     check_recipe_deps, packaging_gate, parse_easyconfig_trees, resolve_easyconfig_file,
 };
-use std::path::PathBuf;
+use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 
 mod common;
 
@@ -342,5 +344,121 @@ fn eon_core_recipe_copies_do_not_drift() {
         let canonical = std::fs::read_to_string(manifest.join(canonical_rel)).unwrap();
         let copy = std::fs::read_to_string(manifest.join(copy_rel)).unwrap();
         assert_eq!(canonical, copy, "{copy_rel} drifted from {canonical_rel}");
+    }
+}
+
+const SMOKE_STEP: &str = "recipe packaging gate on eOn core fixture";
+
+/// The `run: |` script of the ci_test.yml step named `name`, dedented.
+fn ci_step(name: &str) -> String {
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let ci = std::fs::read_to_string(manifest.join(".github/workflows/ci_test.yml"))
+        .expect("read ci_test.yml");
+    let header = format!("- name: {name}");
+    let mut lines = ci
+        .lines()
+        .skip_while(|line| line.trim() != header)
+        .skip(1)
+        .peekable();
+    assert_eq!(
+        lines.next().map(str::trim),
+        Some("run: |"),
+        "ci_test.yml has no step {name:?} with a run block"
+    );
+    let indent = lines
+        .peek()
+        .map(|line| line.len() - line.trim_start().len())
+        .expect("the run block has a body");
+    lines
+        .take_while(|line| line.trim().is_empty() || line.len() - line.trim_start().len() >= indent)
+        .map(|line| format!("{}\n", line.get(indent..).unwrap_or("")))
+        .collect()
+}
+
+/// Run a CI step's script as the runner's bash does, with `BIN` set to `bin`
+/// instead of the release build.
+fn run_step(script: &str, bin: &Path) -> std::process::Output {
+    let release = "BIN=./target/release/eb-stack\n";
+    assert!(script.contains(release), "the step sets {release:?}");
+    let quoted = bin.display().to_string().replace('\'', r"'\''");
+    Command::new("bash")
+        .arg("-ec")
+        .arg(script.replace(release, &format!("BIN='{quoted}'\n")))
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .output()
+        .expect("run bash")
+}
+
+/// A smoke step that expects `recipe check` to fail passes on any error, so a
+/// recipe renamed under it leaves it passing on "No such file or directory".
+#[test]
+fn ci_smoke_step_names_paths_that_exist() {
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let step = ci_step(SMOKE_STEP);
+    let named: Vec<_> = step
+        .split_whitespace()
+        .filter(|word| word.starts_with("fixtures/"))
+        .collect();
+    assert!(!named.is_empty(), "the step names no fixture:\n{step}");
+    for path in named {
+        assert!(
+            manifest.join(path).exists(),
+            "{SMOKE_STEP:?} names {path}, which does not exist"
+        );
+    }
+}
+
+/// The step expects `recipe check` to fail only because the drafts leave the
+/// stack's own dependencies unresolved. Run as CI runs it, it passes with
+/// eb-stack and fails when the check fails for any other reason.
+#[test]
+fn ci_smoke_step_accepts_only_the_unresolved_stack_dependencies() {
+    let step = ci_step(SMOKE_STEP);
+    let real = run_step(&step, Path::new(env!("CARGO_BIN_EXE_eb-stack")));
+    assert!(
+        real.status.success(),
+        "the step fails with eb-stack:\n{}{}",
+        String::from_utf8_lossy(&real.stdout),
+        String::from_utf8_lossy(&real.stderr)
+    );
+
+    let impostors = [
+        (
+            "a recipe that does not exist",
+            "",
+            "error: --recipe fixtures/eon_core_rgpot/easyconfigs/e/eOn/eOn-2.17.2-foss-2026.1.eb: No such file or directory (os error 2)",
+        ),
+        (
+            "a failed packaging gate",
+            "",
+            "error: packaging gate failed: configopts lack -Dwith_rgpot=true",
+        ),
+        (
+            "drafts that do not resolve",
+            r#"  "found": []"#,
+            "error: recipe has 14 unresolved dependencies",
+        ),
+    ];
+    let dir = tempfile::tempdir().expect("tempdir");
+    let stubs: Vec<_> = impostors
+        .iter()
+        .enumerate()
+        .map(|(i, (_, stdout, stderr))| {
+            let stub = dir.path().join(format!("eb-stack-{i}"));
+            std::fs::write(
+                &stub,
+                format!("#!/bin/sh\necho '{stdout}'\necho '{stderr}' >&2\nexit 1\n"),
+            )
+            .expect("write stub");
+            std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755))
+                .expect("chmod stub");
+            stub
+        })
+        .collect();
+    for ((why, _, _), stub) in impostors.iter().zip(&stubs) {
+        assert!(
+            !run_step(&step, stub).status.success(),
+            "the step passes when recipe check fails on {why}"
+        );
     }
 }
