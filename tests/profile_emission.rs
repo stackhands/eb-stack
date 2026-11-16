@@ -690,6 +690,49 @@ fn profile_solver_matches_unmapped_foreign_names_to_robot_candidates() {
     assert_eq!(lock.dependencies[0].name, "SomeLib");
 }
 
+/// The suffix asked for ranks between the other two, so the lock holds it
+/// only when the solve requires it.
+#[test]
+fn a_dependency_versionsuffix_selects_that_variant() {
+    let recipe = parse_foreign_path(&fixture(), Some(ForeignFormat::Spack)).expect("parse");
+    let mut plan = package_plan_from_foreign(&recipe, &toolchain());
+    plan.profiles = qmcpack_profiles();
+    plan.dependencies
+        .retain(|dependency| dependency.name == "hdf5");
+    plan.dependencies[0].versionsuffix = Some("-mpi".into());
+    let variant = |suffix: &str| Candidate {
+        versionsuffix: Some(suffix.into()),
+        easyconfig_path: format!("HDF5-1.14.2-foss-2026.1{suffix}.eb"),
+        ..hdf5_candidate("1.14.2")
+    };
+    let stack = StackPolicy {
+        schema_version: STACK_POLICY_SCHEMA_VERSION,
+        name: "test".into(),
+        toolchain: toolchain(),
+        pins: Vec::new(),
+        exclusions: Vec::new(),
+    };
+
+    let lock = solve_package_profile(
+        &plan,
+        "default",
+        &ProfileEnvironment::default(),
+        &[
+            hdf5_candidate("1.14.2"),
+            variant("-mpi"),
+            variant("-serial"),
+        ],
+        &stack,
+    )
+    .expect("profile solve");
+    assert_eq!(lock.dependencies.len(), 1);
+    assert_eq!(lock.dependencies[0].versionsuffix.as_deref(), Some("-mpi"));
+    assert_eq!(
+        lock.dependencies[0].easyconfig_path,
+        "HDF5-1.14.2-foss-2026.1-mpi.eb"
+    );
+}
+
 #[test]
 fn foreign_build_roles_create_easybuild_builddependencies() {
     let recipe = parse_foreign_path(&fixture(), Some(ForeignFormat::Spack)).expect("parse");

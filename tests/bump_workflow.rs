@@ -1151,6 +1151,102 @@ fn a_system_dependency_named_by_the_versionsuffix_moves_with_the_generation() {
     );
 }
 
+/// `-serial` ranks above the plain build and `-mpi`, so a solve that drops
+/// the stated suffix takes it.
+#[test]
+fn a_bump_keeps_the_stated_versionsuffix_variant() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let robot = temp.path().join("robot");
+    fs::create_dir_all(&robot).expect("robot directory");
+    fs::write(
+        robot.join("GCCcore-15.2.0.eb"),
+        "easyblock = 'Toolchain'\nname = 'GCCcore'\nversion = '15.2.0'\n\
+         homepage = 'https://example.invalid/'\ndescription = 'compiler'\n\
+         toolchain = SYSTEM\nsources = []\nchecksums = []\nmoduleclass = 'compiler'\n",
+    )
+    .expect("GCCcore candidate");
+    for suffix in ["", "-mpi", "-serial"] {
+        fs::write(
+            robot.join(format!("HDF5-1.14.2-GCCcore-15.2.0{suffix}.eb")),
+            format!(
+                "easyblock = 'ConfigureMake'\nname = 'HDF5'\nversion = '1.14.2'\n\
+                 versionsuffix = '{suffix}'\n\
+                 homepage = 'https://example.invalid/'\ndescription = 'HDF5'\n\
+                 toolchain = {{'name': 'GCCcore', 'version': '15.2.0'}}\n\
+                 sources = []\nchecksums = []\nmoduleclass = 'data'\n"
+            ),
+        )
+        .expect("HDF5 candidate");
+    }
+    let toolchain = Toolchain {
+        name: "GCCcore".into(),
+        version: "15.2.0".into(),
+    };
+    for (stated, selected) in [("-mpi", "-mpi"), ("", "")] {
+        let source = temp
+            .path()
+            .join(format!("Alpha-1.0-GCCcore-15.2.0{stated}.eb"));
+        fs::write(
+            &source,
+            format!(
+                "easyblock = 'ConfigureMake'\nname = 'Alpha'\nversion = '1.0'\n\
+                 versionsuffix = '{stated}'\n\
+                 homepage = 'https://example.invalid/'\ndescription = 'Synthetic package'\n\
+                 toolchain = {{'name': 'GCCcore', 'version': '15.2.0'}}\n\
+                 sources = ['alpha-1.0.tar.gz']\n\
+                 checksums = ['aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa']\n\
+                 dependencies = [('HDF5', '1.14.2', '{stated}')]\n\
+                 moduleclass = 'tools'\n"
+            ),
+        )
+        .expect("source recipe");
+        let bundle = plan_package_bump(&BumpPackageRequest {
+            source,
+            toolchain: toolchain.clone(),
+            version: None,
+            source_checksum: None,
+            easyconfig_roots: vec![robot.clone()],
+            hierarchy_fixture: None,
+            overrides: HashMap::new(),
+            stack_policy: StackPolicy {
+                schema_version: STACK_POLICY_SCHEMA_VERSION,
+                name: "default".into(),
+                toolchain: toolchain.clone(),
+                pins: Vec::new(),
+                exclusions: Vec::new(),
+            },
+            strict_patches: false,
+            package_layers: Vec::new(),
+            foreign_sources: Vec::new(),
+        })
+        .expect("the bump solves");
+        let hdf5 = bundle.locks[0]
+            .dependencies
+            .iter()
+            .find(|dependency| dependency.name == "HDF5")
+            .expect("HDF5 is locked");
+        assert_eq!(
+            hdf5.easyconfig_path,
+            robot
+                .join(format!("HDF5-1.14.2-GCCcore-15.2.0{selected}.eb"))
+                .display()
+                .to_string(),
+            "stated suffix {stated:?}"
+        );
+        let recipe =
+            resolve_easyconfig_str(&bundle.easyconfigs[0].text).expect("parse bumped recipe");
+        assert_eq!(
+            recipe.dependencies[0]
+                .versionsuffix
+                .as_deref()
+                .unwrap_or(""),
+            selected,
+            "{}",
+            bundle.easyconfigs[0].text
+        );
+    }
+}
+
 #[test]
 fn a_patch_an_extension_names_travels_with_the_bundle() {
     let temp = tempfile::tempdir().expect("tempdir");

@@ -260,7 +260,7 @@ pub fn solve_package_profile_with_hierarchy(
         let requirement = DepReq {
             name: name.clone(),
             version_req: normalize_requirement(dependency.constraint.as_deref()),
-            versionsuffix: None,
+            versionsuffix: dependency.versionsuffix.clone(),
             toolchain: dependency.toolchain.clone(),
         };
         if build_only {
@@ -338,6 +338,29 @@ pub fn solve_package_profile_with_hierarchy(
         }
     }
     scope_cross_generation_pin_closures(&mut universe, stack_policy, &hierarchy);
+    // A stated versionsuffix holds wherever a build the solve can take
+    // carries it: `-mpi` is not traded for `-serial`. Across a generation it
+    // may name a version that moved instead, and `-CUDA-12.9.1` then takes
+    // the `-CUDA-13.3.0` build when the target carries only that one.
+    for requirement in runtime_dependencies
+        .iter_mut()
+        .chain(build_dependencies.iter_mut())
+    {
+        let carried = requirement.versionsuffix.as_deref().is_some_and(|wanted| {
+            universe.iter().any(|candidate| {
+                package_identities_match(&candidate.name, &requirement.name)
+                    && candidate.versionsuffix.as_deref().unwrap_or("") == wanted
+                    && candidate_matches_any_spelling(candidate, &requirement.version_req)
+                    && requirement
+                        .toolchain
+                        .as_ref()
+                        .is_none_or(|toolchain| toolchains_match(&candidate.toolchain, toolchain))
+            })
+        });
+        if !carried {
+            requirement.versionsuffix = None;
+        }
+    }
     universe.push(Candidate {
         easyblock: None,
         name: synthetic_name.clone(),
