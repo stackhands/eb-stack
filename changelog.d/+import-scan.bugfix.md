@@ -1,0 +1,1 @@
+The import scan of a PyPI source tree skips standard-library modules, test suites, documentation, examples and maintainer scripts, and reads only `import` statements outside triple-quoted strings, so natsort 8.4.0 has 3 `undeclared-import` residuals instead of 29. An import whose name is part of one already reported, such as `requests` after `requests_cache`, is still reported.
