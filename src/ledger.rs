@@ -1505,15 +1505,23 @@ pub fn show(request: &ShowRequest) -> Result<ShowReport> {
         text.push('\n');
         text
     } else {
-        let mut text = String::from("index\tts\taction\ttarget\tmodule\tactor\n");
+        let mut text = String::from("index\tts\taction\tstage\ttarget\tmodule\tactor\n");
         for entry in &selected {
-            let field = |name: &str| entry.record[name].as_str().unwrap_or_default().to_string();
+            let field = |name: &str| {
+                entry
+                    .record
+                    .get(name)
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string()
+            };
             let _ = writeln!(
                 text,
-                "{}\t{}\t{}\t{}\t{}\t{}",
+                "{}\t{}\t{}\t{}\t{}\t{}\t{}",
                 entry.index,
                 field("ts"),
                 field("action"),
+                field("stage"),
                 field("target"),
                 field("module"),
                 field("actor")

@@ -1076,8 +1076,12 @@ is a file name: letters, digits, ~.~, ~_~, and ~-~. The command prints
 one JSON line (~job~, ~admitted~, ~available~, ~used~, ~soft~, ~hard~,
 ~reserved~, ~footprint~, ~margin~, ~headroom~, ~live_jobs~, ~counted~,
 ~stale~, ~stale_dropped~, ~unknown~, ~unknown_reserved~, ~refusal~,
-~reservation~, ~ts~) and exits 0 when admitted, 78 when refused. The
-footprint model is
+~reservation~, ~ts~) and exits 0 when admitted, 78 when refused.
+~refusal~ is ~null~ on admit. On a refusal it names the command that
+failed, or the inodes the job is short followed by the ~available~,
+~reserved~, ~footprint~ and ~margin~ that decided it:
+~106000 inodes short: 1000 available, 2000 reserved, footprint 5000,
+margin 100000~. The footprint model is
 [[file:../explanation/sharding-admission.org][Sharding and inode admission]]. A
 reservation file that is not JSON, has no ~job~ or ~footprint~, or
 names another job than its file name exits 1, because a reservation
@@ -2067,8 +2071,9 @@ through a symbolic or hard link, is refused, and so is a head path that is
 a symbolic link. A signing key with more than one hard link is refused. The
 lock is a POSIX record lock: whether it excludes writers on several hosts
 depends on the shared file system's lock support. ~show~ prints ~index~,
-~ts~, ~action~, ~target~, ~module~ and ~actor~ per record, newest first, then
-~K of N records~. ~--package~ matches a whole module name, or the software
+~ts~, ~action~, ~stage~, ~target~, ~module~ and ~actor~ per record, newest
+first, then ~K of N records~; ~stage~ is empty for a record without one.
+~--package~ matches a whole module name, or the software
 name before its ~/~. ~--json~ prints the records as a JSON array.
 
 ~verify --record N --head HEAD~ checks HEAD's signature against

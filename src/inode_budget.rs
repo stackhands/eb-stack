@@ -1134,6 +1134,15 @@ pub fn run_stack_admit(args: &AdmitRequest) -> Result<AdmitReport> {
     );
     if refusal.is_some() {
         decision.admitted = false;
+    } else if !decision.admitted {
+        refusal = Some(format!(
+            "{} inodes short: {} available, {} reserved, footprint {}, margin {}",
+            decision.headroom.unsigned_abs(),
+            decision.available,
+            decision.reserved,
+            decision.footprint,
+            decision.margin
+        ));
     }
     if args.drop_stale {
         for stale in &decision.stale {
