@@ -198,33 +198,67 @@ fn overlay_meson_wraps(recipe: &mut ForeignRecipe, subprojects: &Path) {
     }
 }
 
+/// Directories skipped at any depth: test suites, caches, hidden tool
+/// directories and Meson subprojects. Their imports are not what the package
+/// needs at run time.
+const SKIPPED_DIRS: &[&str] = &["test", "tests", "__pycache__", "subprojects"];
+
+/// Directories skipped at the top of an sdist, where they hold documentation,
+/// examples, benchmarks and maintainer scripts rather than the package.
+const SKIPPED_ROOT_DIRS: &[&str] = &[
+    "doc",
+    "docs",
+    "example",
+    "examples",
+    "benchmark",
+    "benchmarks",
+    "dev",
+];
+
+/// Files that configure a test or task runner.
+const SKIPPED_FILES: &[&str] = &["conftest.py", "noxfile.py"];
+
 fn scan_python_imports(recipe: &mut ForeignRecipe, tree: &Path) {
     let mut stack = vec![tree.to_path_buf()];
     while let Some(dir) = stack.pop() {
         let Ok(entries) = std::fs::read_dir(&dir) else {
             continue;
         };
-        for entry in entries.flatten() {
-            let path = entry.path();
+        let mut paths: Vec<_> = entries.flatten().map(|entry| entry.path()).collect();
+        paths.sort();
+        for path in paths {
+            let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
             if path.is_dir() {
-                if path.file_name().and_then(|name| name.to_str()) == Some("subprojects") {
-                    continue;
+                let skipped = file_name.starts_with('.')
+                    || SKIPPED_DIRS.contains(&file_name)
+                    || (dir == tree && SKIPPED_ROOT_DIRS.contains(&file_name));
+                if !skipped {
+                    stack.push(path);
                 }
-                stack.push(path);
                 continue;
             }
-            if path.extension().and_then(|ext| ext.to_str()) != Some("py") {
+            if path.extension().and_then(|ext| ext.to_str()) != Some("py")
+                || SKIPPED_FILES.contains(&file_name)
+                || file_name.starts_with("test_")
+                || file_name.ends_with("_test.py")
+            {
                 continue;
             }
             let Ok(text) = std::fs::read_to_string(&path) else {
                 continue;
             };
             for name in python_imports(&text) {
-                if declared(recipe, &name) {
+                if is_python_stdlib(&name)
+                    || crate::provides::shipped_with_python(&name)
+                    || declared(recipe, &name)
+                {
                     continue;
                 }
+                let summary = format!("undeclared import {name}");
                 let already = recipe.residuals.iter().any(|residual| {
-                    residual.category == "undeclared-import" && residual.summary.contains(&name)
+                    residual.category == "undeclared-import" && residual.summary == summary
                 });
                 if already {
                     continue;
@@ -232,7 +266,7 @@ fn scan_python_imports(recipe: &mut ForeignRecipe, tree: &Path) {
                 recipe.residuals.push(ForeignResidual {
                     category: "undeclared-import".into(),
                     severity: ResidualSeverity::Judgment,
-                    summary: format!("undeclared import {name}"),
+                    summary,
                     evidence: Some(path.display().to_string()),
                     provenance: None,
                 });
@@ -241,24 +275,144 @@ fn scan_python_imports(recipe: &mut ForeignRecipe, tree: &Path) {
     }
 }
 
+/// Whether `name` is a module of the Python standard library.
+fn is_python_stdlib(name: &str) -> bool {
+    static NAMES: std::sync::OnceLock<std::collections::HashSet<&'static str>> =
+        std::sync::OnceLock::new();
+    NAMES
+        .get_or_init(|| {
+            include_str!("../data/python-stdlib.txt")
+                .lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty() && !line.starts_with('#'))
+                .collect()
+        })
+        .contains(name)
+}
+
+/// Top-level module names a Python file imports, in order of first use.
+///
+/// Only `import` and `from ... import` statements outside triple-quoted
+/// strings count, so a docstring line such as "from the fastnumbers module
+/// in the event ..." is prose, not an import of `the`.
 fn python_imports(text: &str) -> Vec<String> {
     let mut names = Vec::new();
+    let mut open_quote = None;
     for line in text.lines() {
-        let trimmed = line.trim();
-        if let Some(rest) = trimmed.strip_prefix("import ") {
-            if let Some(name) = rest.split([' ', '.', ',']).next() {
-                push_import(&mut names, name);
-            }
-        }
-        if let Some(rest) = trimmed.strip_prefix("from ") {
-            if let Some(name) = rest.split_whitespace().next() {
-                if let Some(root) = name.split('.').next() {
+        if open_quote.is_none() {
+            let code = line.split(['#', '"', '\'']).next().unwrap_or("");
+            for statement in code.split(';') {
+                for root in import_roots(statement.trim()).unwrap_or_default() {
                     push_import(&mut names, root);
                 }
             }
         }
+        open_quote = open_triple_quote_after(line, open_quote);
     }
     names
+}
+
+/// The absolute module roots one statement imports, or `None` when it is not
+/// an import statement.
+fn import_roots(statement: &str) -> Option<Vec<&str>> {
+    if let Some(rest) = after_keyword(statement, "import") {
+        let mut roots = Vec::new();
+        for item in rest.trim_end_matches('\\').split(',') {
+            let mut words = item.split_whitespace();
+            let Some(module) = words.next() else {
+                continue;
+            };
+            match (words.next(), words.next(), words.next()) {
+                (None, _, _) => {}
+                (Some("as"), Some(alias), None) if is_identifier(alias) => {}
+                _ => return None,
+            }
+            roots.push(dotted_root(module)?);
+        }
+        return (!roots.is_empty()).then_some(roots);
+    }
+    let rest = after_keyword(statement, "from")?;
+    let mut words = rest.split_whitespace();
+    let module = words.next()?;
+    if words.next() != Some("import") || words.next().is_none() {
+        return None;
+    }
+    if module.starts_with('.') {
+        return Some(Vec::new());
+    }
+    Some(vec![dotted_root(module)?])
+}
+
+/// What follows `keyword` when `statement` starts with it as a whole word.
+fn after_keyword<'a>(statement: &'a str, keyword: &str) -> Option<&'a str> {
+    let rest = statement.strip_prefix(keyword)?;
+    rest.starts_with([' ', '\t']).then_some(rest)
+}
+
+/// The first name of a dotted module path, when every part is an identifier.
+fn dotted_root(module: &str) -> Option<&str> {
+    if !module.split('.').all(is_identifier) {
+        return None;
+    }
+    module.split('.').next()
+}
+
+fn is_identifier(word: &str) -> bool {
+    let mut chars = word.chars();
+    chars
+        .next()
+        .is_some_and(|first| first == '_' || first.is_alphabetic())
+        && chars.all(|rest| rest == '_' || rest.is_alphanumeric())
+}
+
+/// The triple quote still open at the end of `line`, given the one open at its
+/// start. Short strings and comments are skipped so a quote inside them does
+/// not open anything.
+fn open_triple_quote_after(line: &str, mut open: Option<&'static str>) -> Option<&'static str> {
+    let mut rest = line;
+    loop {
+        if let Some(quote) = open {
+            let Some(end) = find_unescaped(rest, quote) else {
+                return Some(quote);
+            };
+            rest = &rest[end + quote.len()..];
+            open = None;
+            continue;
+        }
+        let start = rest.find(['#', '"', '\''])?;
+        let tail = &rest[start..];
+        if tail.starts_with('#') {
+            return None;
+        }
+        if let Some(triple) = ["\"\"\"", "'''"]
+            .into_iter()
+            .find(|triple| tail.starts_with(triple))
+        {
+            open = Some(triple);
+            rest = &tail[triple.len()..];
+            continue;
+        }
+        let quote = &tail[..1];
+        let end = find_unescaped(&tail[1..], quote)?;
+        rest = &tail[1 + end + 1..];
+    }
+}
+
+/// Byte offset of the first `quote` in `text` that no backslash escapes.
+fn find_unescaped(text: &str, quote: &str) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'\\' {
+            index += 2;
+            continue;
+        }
+        if bytes[index..].starts_with(quote.as_bytes()) {
+            return Some(index);
+        }
+        index += 1;
+    }
+    None
 }
 
 fn push_import(names: &mut Vec<String>, name: &str) {
@@ -393,6 +547,85 @@ mod tests {
             !recipe.dependencies.iter().any(|dep| dep.name == "yaml"),
             "{:?}",
             recipe.dependencies
+        );
+    }
+
+    /// The undeclared-import summaries a source tree of `files` produces,
+    /// sorted.
+    fn undeclared_imports(files: &[(&str, &str)]) -> Vec<String> {
+        let root = tempfile::tempdir().expect("temp");
+        let tree = root.path().join("demo-1.0.0");
+        for (path, text) in files {
+            let path = tree.join(path);
+            std::fs::create_dir_all(path.parent().expect("parent")).expect("dirs");
+            std::fs::write(path, text).expect("py");
+        }
+        let dump = root.path().join("demo-1.0.0.json");
+        std::fs::write(&dump, "{}").expect("dump");
+        let mut recipe = empty_recipe();
+        enrich_from_source_tree(&mut recipe, &dump);
+        let mut found: Vec<String> = recipe
+            .residuals
+            .iter()
+            .filter(|residual| residual.category == "undeclared-import")
+            .map(|residual| residual.summary.clone())
+            .collect();
+        found.sort();
+        found
+    }
+
+    #[test]
+    fn standard_library_imports_are_not_residuals() {
+        let found = undeclared_imports(&[(
+            "demo/core.py",
+            "from __future__ import annotations\nimport os\nimport re\nimport cProfile\nfrom collections import OrderedDict\nimport unicodedata\nimport requests\n",
+        )]);
+        assert_eq!(found, ["undeclared import requests"]);
+    }
+
+    #[test]
+    fn test_doc_and_maintainer_imports_are_not_residuals() {
+        let found = undeclared_imports(&[
+            ("demo/core.py", "import requests\n"),
+            ("demo/tests/test_core.py", "import pytest_mock\n"),
+            ("tests/test_main.py", "import pytest\nimport hypothesis\n"),
+            ("tests/profile_natsorted.py", "import pyperf\n"),
+            ("conftest.py", "import pytest\n"),
+            ("noxfile.py", "import nox\n"),
+            ("docs/conf.py", "import sphinx_rtd_theme\n"),
+            ("dev/bump.py", "import invoke\n"),
+            (
+                "setup.py",
+                "from setuptools import setup\nfrom Cython.Build import cythonize\n",
+            ),
+        ]);
+        assert_eq!(
+            found,
+            ["undeclared import Cython", "undeclared import requests"]
+        );
+    }
+
+    #[test]
+    fn docstring_prose_is_not_an_import() {
+        let found = undeclared_imports(&[(
+            "demo/compat/fake_fastnumbers.py",
+            "\"\"\"\nThis module is intended to replicate some of the functionality\nfrom the fastnumbers module in the event that module is not installed.\nimport the fast one when it is there.\n\"\"\"\nimport unicodedata\nfrom typing import Callable, FrozenSet, Union\n\nimport fastnumbers  # optional\n\ndef f():\n    '''Return x.\n    from here import nothing\n    '''\n    return '''import inline'''\n",
+        )]);
+        assert_eq!(found, ["undeclared import fastnumbers"]);
+    }
+
+    #[test]
+    fn a_name_inside_a_reported_name_is_still_reported() {
+        let found = undeclared_imports(&[(
+            "demo/core.py",
+            "import requests_cache\nimport requests\nimport requests_cache\n",
+        )]);
+        assert_eq!(
+            found,
+            [
+                "undeclared import requests",
+                "undeclared import requests_cache"
+            ]
         );
     }
 }
