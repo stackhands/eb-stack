@@ -315,7 +315,8 @@ pub fn verify_declared_version(
     let mut findings = Vec::new();
     let Some(declared) = declared else {
         findings.push(SourceFinding::warning(
-            "no build system in the source tree declares a version, so the recipe version              is unverified against what the code reports"
+            "no build system in the source tree declares a version, so the recipe version \
+             is unverified against what the code reports"
                 .into(),
         ));
         return findings;
@@ -670,6 +671,11 @@ mod declared_version_tests {
         let findings = verify_declared_version("1.0.0", None);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].level, FindingLevel::Warning);
+        assert_eq!(
+            findings[0].message,
+            "no build system in the source tree declares a version, so the recipe version \
+             is unverified against what the code reports"
+        );
     }
 
     /// The real case: a snapshot named after the last release tag while the
