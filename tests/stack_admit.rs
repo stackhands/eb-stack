@@ -102,6 +102,40 @@ fn a_lane_is_admitted_then_the_next_is_refused_and_a_stale_reservation_is_droppe
 }
 
 #[test]
+fn a_job_the_inodes_cannot_hold_is_refused_with_the_shortfall() {
+    let tmp = tempfile::tempdir().unwrap();
+    let quota = tmp.path().join("quota.json");
+    // 900,000 soft minus 899,000 used: 1,000 available.
+    std::fs::write(
+        &quota,
+        r#"{"inodes_used": 899000, "inodes_soft": 900000, "inodes_hard": 1000000}"#,
+    )
+    .unwrap();
+    let reservations = tmp.path().join("reservations");
+    std::fs::create_dir_all(&reservations).unwrap();
+    std::fs::write(
+        reservations.join("4420.json"),
+        r#"{"job": "4420", "footprint": 2000, "ts": "2026-11-06T00:00:00Z"}"#,
+    )
+    .unwrap();
+
+    // 1,000 - 2,000 - 5,000 - 100,000 = -106,000.
+    let refused = admit(&quota, &reservations, "4421", "5000", Some("4420"));
+    assert_eq!(refused["admitted"], false, "{refused}");
+    assert_eq!(refused["headroom"], -106_000);
+    assert_eq!(
+        refused["refusal"],
+        "106000 inodes short: 1000 available, 2000 reserved, footprint 5000, margin 100000",
+        "{refused}"
+    );
+
+    std::fs::write(&quota, r#"{"inodes_available": 500000}"#).unwrap();
+    let admitted = admit(&quota, &reservations, "4421", "5000", Some("4420"));
+    assert_eq!(admitted["admitted"], true, "{admitted}");
+    assert_eq!(admitted["refusal"], Value::Null, "{admitted}");
+}
+
+#[test]
 fn the_quota_may_come_from_stdin_and_a_bad_job_id_is_a_usage_error() {
     use std::io::Write;
     let tmp = tempfile::tempdir().unwrap();
