@@ -680,7 +680,11 @@ fn overlay_from_commits(
             by_commit.entry(commit).or_default().push(&e.file);
         }
     }
-    let dir = std::env::temp_dir().join(format!("eb-stack-from-commit-{}", std::process::id()));
+    // A directory named only with the process id is shared by every
+    // from-commit read in this process, and it is a name another user can
+    // create first in a shared temporary directory. Each read gets a
+    // directory `create_dir` made, which fails if the path already exists.
+    let dir = private_temp_dir("eb-stack-from-commit")?;
     let mut out = Vec::new();
     let result = (|| -> Result<()> {
         for (commit, files) in &by_commit {
@@ -691,7 +695,7 @@ fn overlay_from_commits(
                 commit,
                 "easybuild/easyconfigs",
             ])?;
-            let root = dir.join(commit);
+            let root = dir.0.join(commit);
             for file in files {
                 let Some(path) = listing.lines().find(|p| p.ends_with(&format!("/{file}"))) else {
                     continue;
@@ -708,8 +712,47 @@ fn overlay_from_commits(
         }
         Ok(())
     })();
-    let _ = std::fs::remove_dir_all(&dir);
+    drop(dir);
     result.map(|()| out)
+}
+
+/// A directory this call created under the temporary directory, removed on drop.
+struct PrivateTempDir(std::path::PathBuf);
+
+impl Drop for PrivateTempDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+/// Create a new directory. A path that already exists, including one planted
+/// before this call, is not used.
+fn private_temp_dir(prefix: &str) -> Result<PrivateTempDir> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+    let base = std::env::temp_dir();
+    for _ in 0..32 {
+        let sequence = SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_nanos())
+            .unwrap_or(0);
+        let path = base.join(format!(
+            "{prefix}-{}-{nanos}-{sequence}",
+            std::process::id()
+        ));
+        match std::fs::create_dir(&path) {
+            Ok(()) => return Ok(PrivateTempDir(path)),
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(err) => {
+                return Err(err).context(format!("create temporary directory {}", path.display()));
+            }
+        }
+    }
+    bail!(
+        "could not create a private temporary directory under {}",
+        base.display()
+    );
 }
 
 /// What a solve compares its result against.
@@ -1282,5 +1325,73 @@ dependencies = []
         );
         // Non-overridden upstream still co-selected.
         assert_eq!(lock.package("OpenBLAS").unwrap().version, "0.3.27");
+    }
+
+    #[test]
+    fn from_commit_overlay_does_not_remove_a_precreated_pid_directory() {
+        let predictable =
+            std::env::temp_dir().join(format!("eb-stack-from-commit-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&predictable);
+        std::fs::create_dir(&predictable).expect("predictable directory");
+        std::fs::write(predictable.join("sentinel"), b"keep").expect("sentinel");
+
+        let repo = tempfile::tempdir().expect("repo");
+        let git = |args: &[&str]| {
+            let status = std::process::Command::new("git")
+                .arg("-C")
+                .arg(repo.path())
+                .args(args)
+                .env("GIT_AUTHOR_NAME", "Test")
+                .env("GIT_AUTHOR_EMAIL", "test@example.com")
+                .env("GIT_COMMITTER_NAME", "Test")
+                .env("GIT_COMMITTER_EMAIL", "test@example.com")
+                .status()
+                .expect("git");
+            assert!(status.success(), "{args:?}");
+        };
+        git(&["init", "-q"]);
+        let recipe = repo.path().join("easybuild/easyconfigs/f/Foo/Foo-1.0.eb");
+        std::fs::create_dir_all(recipe.parent().expect("recipe parent")).expect("dirs");
+        std::fs::write(
+            &recipe,
+            "name = 'Foo'\nversion = '1.0'\ntoolchain = SYSTEM\n",
+        )
+        .expect("recipe");
+        git(&["add", "."]);
+        git(&["commit", "-q", "-m", "foo"]);
+        let sha = std::process::Command::new("git")
+            .arg("-C")
+            .arg(repo.path())
+            .args(["rev-parse", "HEAD"])
+            .output()
+            .expect("rev-parse")
+            .stdout;
+        let sha = String::from_utf8(sha).expect("sha").trim().to_string();
+        let stack_dir = tempfile::tempdir().expect("stack");
+        let stack = stack_dir.path().join("stack.yml");
+        std::fs::write(
+            &stack,
+            format!("easyconfigs:\n  - Foo-1.0.eb:\n      options:\n        from-commit: {sha}\n"),
+        )
+        .expect("easystack");
+        let family = (
+            crate::domain::Toolchain {
+                name: "foss".into(),
+                version: "2026.1".into(),
+            },
+            Vec::new(),
+        );
+        let solved = baseline_from_easystacks(&[&stack], &[], Some(repo.path()), &[family]);
+        assert!(
+            solved.is_ok(),
+            "from-commit read failed: {}",
+            solved.unwrap_err()
+        );
+        assert!(
+            predictable.join("sentinel").is_file(),
+            "from-commit read reused {}",
+            predictable.display()
+        );
+        let _ = std::fs::remove_dir_all(&predictable);
     }
 }
