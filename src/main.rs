@@ -93,9 +93,9 @@ enum Command {
         #[command(subcommand)]
         command: ReproCommand,
     },
-    /// Append to, list, and verify a per-stack software ledger.
+    /// Append to, list, verify, anchor and project a per-stack software ledger.
     #[command(
-        after_long_help = "Examples:\n  eb-stack ledger append record.json --log ledger/2026.06.jsonl --key ~/keys/ledger.pem --head-out head.json\n  eb-stack ledger show --log ledger/2026.06.jsonl --package PETSc\n  eb-stack ledger find --log ledger/2026.06.jsonl --public-key ledger.pub --key pkg=PETSc --key route=kvm\n  eb-stack ledger verify --log ledger/2026.06.jsonl --public-key ledger.pub --record 3 --head head.json"
+        after_long_help = "Examples:\n  eb-stack ledger append record.json --log ledger/2026.06.jsonl --key ~/keys/ledger.pem --head-out head.json\n  eb-stack ledger show --log ledger/2026.06.jsonl --package PETSc\n  eb-stack ledger find --log ledger/2026.06.jsonl --public-key ledger.pub --key pkg=PETSc --key route=kvm\n  eb-stack ledger verify --log ledger/2026.06.jsonl --public-key ledger.pub --record 3 --head head.json\n  eb-stack ledger anchor --log /srv/ledger/2026.06.jsonl --key /etc/eb-stack/ledger.pem --public-key /etc/eb-stack/ledger.pub --anchors /srv/ledger-anchors"
     )]
     Ledger {
         #[command(subcommand)]
@@ -619,6 +619,111 @@ enum LedgerCommand {
         /// Checkpoint origin. Defaults to `eb-stack-ledger/<stack>/<year>` from the first record.
         #[arg(long)]
         origin: Option<String>,
+    },
+    /// Append observed history from a manifest pinned by its SHA-256.
+    ///
+    /// Each observation in the manifest becomes one `finding` record at the
+    /// manifest's `observed_at`, with the manifest id, its SHA-256 and the
+    /// observation's provenance in `build`. A rerun appends nothing: the
+    /// ledger acknowledges every record as already recorded. A manifest id
+    /// backfilled from other bytes, or an event id recorded with other
+    /// content, is refused before anything is appended. Every path is
+    /// absolute and free of symbolic links. Prints a JSON summary. Exit
+    /// status 2 on a refusal, 75 when an append did not finish; run the same
+    /// command again.
+    #[command(
+        after_long_help = "Examples:\n  eb-stack ledger backfill --log /srv/ledger/2026.06.jsonl --key /etc/eb-stack/ledger.pem --head /srv/heads/2026.06.json --public-key /etc/eb-stack/ledger.pub --manifest /srv/audit/audit-1.json --manifest-sha256 \"$(sha256sum /srv/audit/audit-1.json | cut -d' ' -f1)\""
+    )]
+    Backfill {
+        /// The JSON Lines log. Created when absent.
+        #[arg(long)]
+        log: PathBuf,
+        /// Ed25519 PKCS#8 PEM key. Refused inside the log's or the head's directory.
+        #[arg(long)]
+        key: PathBuf,
+        /// File for the signed head after each append.
+        #[arg(long)]
+        head: PathBuf,
+        /// Ed25519 public key the head is signed by: PEM, or 64 hex characters.
+        #[arg(long)]
+        public_key: PathBuf,
+        /// The observed-history manifest (schema `eb-staged-rebuild/observed-backfill/1`).
+        #[arg(long)]
+        manifest: PathBuf,
+        /// SHA-256 of the manifest's bytes, 64 lower-case hex characters.
+        #[arg(long)]
+        manifest_sha256: String,
+    },
+    /// Sign today's head and add it to a directory of immutable daily anchors.
+    ///
+    /// The head is signed now and published as `<anchors>/<YYYY-MM-DD>.head.json`
+    /// (UTC) once `ledger verify` proves it binds to the log and extends the
+    /// latest anchor. A file is never replaced: a second run on the same day
+    /// proves the day's anchor still extends into the log and reports it
+    /// with `"status": "exists"`. An anchor dated after today, a rewritten
+    /// or truncated log, and anchors signed by different keys are refused.
+    /// Prints a JSON summary. Exit status 2 on a refusal, 75 when signing
+    /// did not finish; run the same command again.
+    #[command(
+        after_long_help = "Examples:\n  eb-stack ledger anchor --log /srv/ledger/2026.06.jsonl --key /etc/eb-stack/ledger.pem --public-key /etc/eb-stack/ledger.pub --anchors /srv/ledger-anchors"
+    )]
+    Anchor {
+        /// The JSON Lines log.
+        #[arg(long)]
+        log: PathBuf,
+        /// Ed25519 PKCS#8 PEM key. Refused inside the log's or the anchors' directory.
+        #[arg(long)]
+        key: PathBuf,
+        /// Ed25519 public key every anchor is signed by: PEM, or 64 hex characters.
+        #[arg(long)]
+        public_key: PathBuf,
+        /// Directory of daily anchors, outside the log's directory.
+        #[arg(long)]
+        anchors: PathBuf,
+    },
+    /// Prove the chain of daily anchors against the log.
+    ///
+    /// Every anchor must extend the one before it, and the latest must bind
+    /// to the log. Prints a JSON summary. Exit status 2 when a proof does
+    /// not check.
+    #[command(
+        after_long_help = "Examples:\n  eb-stack ledger verify-anchors --log /srv/ledger/2026.06.jsonl --public-key /etc/eb-stack/ledger.pub --anchors /srv/ledger-anchors"
+    )]
+    VerifyAnchors {
+        /// The JSON Lines log.
+        #[arg(long)]
+        log: PathBuf,
+        /// Ed25519 public key every anchor is signed by: PEM, or 64 hex characters.
+        #[arg(long)]
+        public_key: PathBuf,
+        /// Directory of daily anchors.
+        #[arg(long)]
+        anchors: PathBuf,
+    },
+    /// Write JSON and Markdown history of every package in a verified log.
+    ///
+    /// The head must be signed by `--public-key` and cover every record. The
+    /// output directory gets `index.json`, `index.md`, and
+    /// `packages/<name>.json` and `packages/<name>.md` for every package
+    /// (the part of a module name before the first `/`). The same log and
+    /// head always give the same bytes. Prints a JSON summary. Exit status 2
+    /// on a refusal, including a head that covers fewer records than the log.
+    #[command(
+        after_long_help = "Examples:\n  eb-stack ledger project --log /srv/ledger/2026.06.jsonl --head /srv/heads/2026.06.json --public-key /etc/eb-stack/ledger.pub --out /srv/www/ledger-history"
+    )]
+    Project {
+        /// The JSON Lines log.
+        #[arg(long)]
+        log: PathBuf,
+        /// A signed head that covers every record.
+        #[arg(long)]
+        head: PathBuf,
+        /// Ed25519 public key the head is signed by: PEM, or 64 hex characters.
+        #[arg(long)]
+        public_key: PathBuf,
+        /// Output directory. Holds nothing but a projection.
+        #[arg(long)]
+        out: PathBuf,
     },
 }
 
@@ -2228,6 +2333,12 @@ fn main() {
         // Display, not Debug: Debug appends a stack backtrace, which is a
         // compiler trace and not the reason the command failed.
         eprintln!("error: {error:#}");
+        // A ledger maintenance command is 2 when refused and 75 when a write
+        // did not finish and the same command can be run again.
+        #[cfg(unix)]
+        if let Some(code) = eb_stack::ledger_maintenance::exit_code(&error) {
+            std::process::exit(code);
+        }
         // 2 is a rejected command line. 1 is work that was attempted and failed.
         let code = if is_usage(&error) { 2 } else { 1 };
         std::process::exit(code);
@@ -2442,8 +2553,71 @@ fn run_ledger(command: LedgerCommand) -> Result<()> {
             })?;
             print!("{}", report.stdout);
         }
+        maintenance => run_ledger_maintenance(maintenance)?,
     }
     Ok(())
+}
+
+/// `ledger backfill`, `anchor`, `verify-anchors` and `project`: print the
+/// JSON summary, or fail with status 2 (refused) or 75 (run it again).
+#[cfg(unix)]
+fn run_ledger_maintenance(command: LedgerCommand) -> Result<()> {
+    use eb_stack::ledger_maintenance as maintenance;
+    let result = match command {
+        LedgerCommand::Backfill {
+            log,
+            key,
+            head,
+            public_key,
+            manifest,
+            manifest_sha256,
+        } => maintenance::backfill(&maintenance::BackfillRequest {
+            log,
+            key,
+            head,
+            public_key,
+            manifest,
+            manifest_sha256,
+            now: maintenance::now_seconds(),
+        }),
+        LedgerCommand::Anchor {
+            log,
+            key,
+            public_key,
+            anchors,
+        } => maintenance::anchor(&maintenance::AnchorRequest {
+            log,
+            key,
+            public_key,
+            anchors,
+            now: maintenance::now_seconds(),
+        }),
+        LedgerCommand::VerifyAnchors {
+            log,
+            public_key,
+            anchors,
+        } => maintenance::verify_anchors(&log, &public_key, &anchors),
+        LedgerCommand::Project {
+            log,
+            head,
+            public_key,
+            out,
+        } => maintenance::project(&maintenance::ProjectRequest {
+            log,
+            head,
+            public_key,
+            out,
+        }),
+        other => unreachable!("{other:?} is not a maintenance command"),
+    };
+    let value = result.map_err(maintenance::as_maintenance_error)?;
+    println!("{}", maintenance::dumps(&value, None));
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn run_ledger_maintenance(_command: LedgerCommand) -> Result<()> {
+    anyhow::bail!("ledger backfill, anchor, verify-anchors and project need a Unix system")
 }
 
 #[derive(clap::Args, Debug)]
