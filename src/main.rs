@@ -38,7 +38,7 @@ fn is_usage(error: &anyhow::Error) -> bool {
     name = "eb-stack",
     version,
     about = "Canonical SBOM, build-manifest, Resolvo, EasyBuild, and campaign workflows",
-    after_long_help = "Exit status is 0 when the command finished, 1 when the work failed, and 2 when the command line was rejected. `stack admit` exits 78 when it refuses the job.\n\nA directory of artifacts is --out-dir. A single output file is --out.\n\nExamples:\n  eb-stack package inspect --source recipe.yaml --format conda-forge --toolchain foss/2026.1 --out-dir bundle\n  eb-stack --help"
+    after_long_help = "Exit status is 0 when the command finished, 1 when the work failed, and 2 when the command line was rejected. `stack admit` exits 78 when it refuses the job. `ledger backfill`, `anchor`, `verify-anchors` and `project` exit 2 when they refuse, and `ledger backfill` and `anchor` exit 75 when an append or a signature did not finish.\n\nA directory of artifacts is --out-dir. A single output file is --out.\n\nExamples:\n  eb-stack package inspect --source recipe.yaml --format conda-forge --toolchain foss/2026.1 --out-dir bundle\n  eb-stack --help"
 )]
 struct Cli {
     #[command(subcommand)]
