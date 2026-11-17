@@ -2424,6 +2424,8 @@ fn atomic_write(path: &Path, data: &[u8]) -> Result<()> {
         Ok(info) => Some(info),
         Err(_) => None,
     };
+    // mode_t is u32 on Linux and u16 on macOS.
+    #[allow(clippy::useless_conversion)]
     let mode = match &existing {
         Some(info) => info.mode() & 0o7777,
         None => {
