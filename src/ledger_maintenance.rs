@@ -2563,16 +2563,19 @@ mod tests {
 
     #[test]
     fn dumps_matches_sorted_ascii_json() {
-        let value = json!({"b": [1, {"y": "é\n", "x": []}], "a": null, "c": {}});
+        let value = json!({"b": [1, {"y": "\u{e9}\n", "x": []}], "a": null, "c": {}});
         assert_eq!(
             dumps(&value, None),
-            r#"{"a": null, "b": [1, {"x": [], "y": "é\n"}], "c": {}}"#
+            r#"{"a": null, "b": [1, {"x": [], "y": "\u00e9\n"}], "c": {}}"#
         );
         assert_eq!(
             dumps(&value, Some(2)),
             "{\n  \"a\": null,\n  \"b\": [\n    1,\n    {\n      \"x\": [],\n      \"y\": \"\\u00e9\\n\"\n    }\n  ],\n  \"c\": {}\n}"
         );
-        assert_eq!(dumps(&json!("\u{1f600}\u{7f}"), None), r#""😀\u007f""#);
+        assert_eq!(
+            dumps(&json!("\u{1f600}\u{7f}"), None),
+            r#""\ud83d\ude00\u007f""#
+        );
     }
 
     #[test]
@@ -2606,6 +2609,6 @@ mod tests {
             quote("packages/evil%7Cpkg.md", "/"),
             "packages/evil%257Cpkg.md"
         );
-        assert_eq!(quote("café~", ""), "caf%C3%A9~");
+        assert_eq!(quote("caf\u{e9}~", ""), "caf%C3%A9~");
     }
 }
