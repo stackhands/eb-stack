@@ -178,10 +178,14 @@ fn mcp_catalog_matches_the_version_one_workflows() {
         "eb_ledger_find",
         "eb_ledger_show",
         "eb_ledger_verify",
+        "eb_ledger_backfill",
+        "eb_ledger_anchor",
+        "eb_ledger_verify_anchors",
+        "eb_ledger_project",
     ] {
         assert!(names.contains(&expected), "missing {expected}: {names:?}");
     }
-    assert_eq!(names.len(), 60, "unexpected MCP tools: {names:?}");
+    assert_eq!(names.len(), 64, "unexpected MCP tools: {names:?}");
 
     let inspect = response["result"]["tools"]
         .as_array()
@@ -2597,6 +2601,10 @@ fn mcp_schemas_cover_cli_flags() {
         ("eb_ledger_find", "ledger find"),
         ("eb_ledger_show", "ledger show"),
         ("eb_ledger_verify", "ledger verify"),
+        ("eb_ledger_backfill", "ledger backfill"),
+        ("eb_ledger_anchor", "ledger anchor"),
+        ("eb_ledger_verify_anchors", "ledger verify-anchors"),
+        ("eb_ledger_project", "ledger project"),
         ("eb_component_reach", "component-reach"),
         ("eb_target_list", "target list"),
         ("eb_target_doctor", "target doctor"),
@@ -3882,6 +3890,10 @@ fn every_cli_subcommand_has_an_mcp_tool() {
         ("eb_ledger_find", &["ledger", "find"]),
         ("eb_ledger_show", &["ledger", "show"]),
         ("eb_ledger_verify", &["ledger", "verify"]),
+        ("eb_ledger_backfill", &["ledger", "backfill"]),
+        ("eb_ledger_anchor", &["ledger", "anchor"]),
+        ("eb_ledger_verify_anchors", &["ledger", "verify-anchors"]),
+        ("eb_ledger_project", &["ledger", "project"]),
         ("eb_pr_overlap", &["pr-overlap"]),
         ("eb_rebuild_set", &["rebuild-set"]),
         ("eb_component_reach", &["component-reach"]),

@@ -357,7 +357,7 @@ fn mcp_stdio_catalog_lists_the_overlap_and_reach_tools() {
     ] {
         assert!(names.contains(&expected), "missing {expected}: {names:?}");
     }
-    assert_eq!(names.len(), 60, "{names:?}");
+    assert_eq!(names.len(), 64, "{names:?}");
 }
 
 fn software_layer_prs() -> Vec<PrInput> {

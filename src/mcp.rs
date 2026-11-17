@@ -819,6 +819,47 @@ fn tool_catalog() -> Vec<Value> {
                 ("origin", "string"),
             ],
         ),
+        tool(
+            "eb_ledger_backfill",
+            "Append one finding record per observation of an observed-history manifest pinned by its SHA-256, each at most once, and prove each is in the signed head. Every path is absolute. Same as `ledger backfill`.",
+            &[
+                ("log", "string"),
+                ("key", "string"),
+                ("head", "string"),
+                ("public_key", "string"),
+                ("manifest", "string"),
+                ("manifest_sha256", "string"),
+            ],
+        ),
+        tool(
+            "eb_ledger_anchor",
+            "Sign today's ledger head and publish it once as <anchors>/<YYYY-MM-DD>.head.json after proving it binds to the log and extends the latest anchor; an existing anchor is never replaced. Same as `ledger anchor`.",
+            &[
+                ("log", "string"),
+                ("key", "string"),
+                ("public_key", "string"),
+                ("anchors", "string"),
+            ],
+        ),
+        tool(
+            "eb_ledger_verify_anchors",
+            "Prove that every daily anchor extends the one before it and that the latest binds to the ledger. Same as `ledger verify-anchors`.",
+            &[
+                ("log", "string"),
+                ("public_key", "string"),
+                ("anchors", "string"),
+            ],
+        ),
+        tool(
+            "eb_ledger_project",
+            "Write index.json, index.md and per-package JSON and Markdown history from a ledger whose signed head covers every record. Same as `ledger project`.",
+            &[
+                ("log", "string"),
+                ("head", "string"),
+                ("public_key", "string"),
+                ("out", "string"),
+            ],
+        ),
     ];
     if let Some(lint) = tools
         .iter_mut()
@@ -968,6 +1009,10 @@ fn call_tool(name: &str, arguments: &Value) -> Result<Value, String> {
         "eb_ledger_find" => ledger_find_tool(arguments),
         "eb_ledger_show" => ledger_show_tool(arguments),
         "eb_ledger_verify" => ledger_verify_tool(arguments),
+        "eb_ledger_backfill" => ledger_maintenance_tool(name, arguments),
+        "eb_ledger_anchor" => ledger_maintenance_tool(name, arguments),
+        "eb_ledger_verify_anchors" => ledger_maintenance_tool(name, arguments),
+        "eb_ledger_project" => ledger_maintenance_tool(name, arguments),
         _ => Err(format!("unknown tool: {name}")),
     }
 }
@@ -3930,6 +3975,51 @@ fn ledger_verify_tool(arguments: &Value) -> Result<Value, String> {
         "tiles_size": report.tiles_size,
         "tiles_root": report.tiles_root,
     }))
+}
+
+/// `ledger backfill`, `anchor`, `verify-anchors` and `project`: the JSON
+/// summary the command prints, with its text.
+#[cfg(unix)]
+fn ledger_maintenance_tool(name: &str, arguments: &Value) -> Result<Value, String> {
+    use crate::ledger_maintenance as maintenance;
+    let path = |key: &str| required_path(arguments, key);
+    let result = match name {
+        "eb_ledger_backfill" => maintenance::backfill(&maintenance::BackfillRequest {
+            log: path("log")?,
+            key: path("key")?,
+            head: path("head")?,
+            public_key: path("public_key")?,
+            manifest: path("manifest")?,
+            manifest_sha256: required_string(arguments, "manifest_sha256")?,
+            now: maintenance::now_seconds(),
+        }),
+        "eb_ledger_anchor" => maintenance::anchor(&maintenance::AnchorRequest {
+            log: path("log")?,
+            key: path("key")?,
+            public_key: path("public_key")?,
+            anchors: path("anchors")?,
+            now: maintenance::now_seconds(),
+        }),
+        "eb_ledger_verify_anchors" => {
+            maintenance::verify_anchors(&path("log")?, &path("public_key")?, &path("anchors")?)
+        }
+        "eb_ledger_project" => maintenance::project(&maintenance::ProjectRequest {
+            log: path("log")?,
+            head: path("head")?,
+            public_key: path("public_key")?,
+            out: path("out")?,
+        }),
+        other => return Err(format!("{other} is not a ledger maintenance tool")),
+    };
+    let mut value = result.map_err(workflow_error)?;
+    let text = maintenance::dumps(&value, None);
+    value["text"] = Value::from(text);
+    Ok(value)
+}
+
+#[cfg(not(unix))]
+fn ledger_maintenance_tool(name: &str, _arguments: &Value) -> Result<Value, String> {
+    Err(format!("{name} needs a Unix system"))
 }
 
 fn pr_overlap(arguments: &Value) -> Result<Value, String> {
