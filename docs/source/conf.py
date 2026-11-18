@@ -115,22 +115,27 @@ html_theme_options = {
                 {
                     "title": "eb-staged-rebuild",
                     "url": "https://stackhands.github.io/eb-staged-rebuild/",
-                    "summary": "Rebuild an installation in a staged tree and swap it in, so running jobs keep their paths",
+                    "summary": "Rebuild an installation beside the live one and swap it in, for a stack outside CernVM-FS that jobs read during the rebuild",
                 },
                 {
                     "title": "eessi-arch-guard",
                     "url": "https://stackhands.github.io/eessi-arch-guard/",
-                    "summary": "Reload EESSI in a Slurm task that inherited it for another CPU or GPU",
+                    "summary": "Reload EESSI in a Slurm task that inherited a stack loaded for another CPU or GPU, as srun from a login shell does",
                 },
                 {
                     "title": "eb-local",
                     "url": "https://stackhands.github.io/eb-local/",
-                    "summary": "Install software with EasyBuild on top of EESSI into a directory a user or project owns",
+                    "summary": "Build on EESSI-extend inside a Slurm job's node-local disk, compile your own code with RPATH, list and uninstall per CPU target",
                 },
                 {
                     "title": "eb-keep-logs",
                     "url": "https://stackhands.github.io/eb-keep-logs/",
-                    "summary": "Keep a failed build's EasyBuild log and command output; rotate a pipeline's log tree",
+                    "summary": "Keep a failed EasyBuild command's own output, which --tmp-logdir does not; rotate a pipeline's log tree",
+                },
+                {
+                    "title": "eb-pipeline",
+                    "url": "https://stackhands.github.io/eb-pipeline/",
+                    "summary": "Drive a site's EasyBuild builds from one site file, through eb-stack, eb-staged-rebuild and eb-keep-logs",
                 },
                 {
                     "title": "rfc9162",
