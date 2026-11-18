@@ -222,7 +222,8 @@ fn io_refused(what: &str, path: &Path, error: &std::io::Error) -> anyhow::Error 
 /// JSON text with keys sorted and every character outside printable ASCII
 /// escaped. With `indent`, nested values go on their own lines indented by
 /// that many spaces per level and items are separated by `,`; without, the
-/// value is one line with `, ` and `: ` separators.
+/// value is one line, with a comma and a space between items and a colon
+/// and a space after each key.
 #[must_use]
 pub fn dumps(value: &Value, indent: Option<usize>) -> String {
     let mut out = String::new();
