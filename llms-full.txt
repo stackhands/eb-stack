@@ -6729,8 +6729,9 @@ reachability, toolchain family, and the claim ladder are defined in
 | 1 | The work was attempted and failed: a missing or unreadable file, a document that does not parse, a check that found errors, a network fetch that failed, a doctor probe, or a campaign whose build failed |
 | 2 | The command line was rejected before that work: a missing or unknown flag (clap), or a flag value or combination the command does not accept |
 | 78 | `stack admit` refused the job. The quota leaves too few inodes for the footprint and the margin, or the quota command or the scheduler command failed |
+| 75 | `ledger backfill` or `ledger anchor`: an append or a signature did not finish, so a record may or may not be in the log. Run the same command again |
 
-A rejected value names the flag and the value. A missing file names the flag and the path. Status 2 is the same status clap already uses. A recipe that fails `recipe lint` or `recipe check` is status 1: the files were read and the check failed. `stack from-commit` is status 1 when any pin is `released`, and status 0 when every pin is `newer` or `unknown` or the files name no pin. A file name with no `eb-X.Y.Z`, and no `--easybuild-version`, is status 2. `stack arch` is status 1 when an entry is unsupported or flagged, or when `--probe-sources` reports `unreachable` or `arch-missing` sources. `stack files` is status 1 when a patch or an easyconfig is missing, and status 0 when the only lines are `no_url` or `unchecked`. `stack generation` is status 1 on any finding, and status 2 when an easystack path names no EESSI version and `--eessi-version` is absent. `stack known-failures` is status 0 when it prints warnings: they are advice for the pull request, not a refusal; with `--strict` it is status 1 when a warning remains, and status 0 when every hit is remedied. `stack oom` is status 0 when it warns: the warnings are advice, not a failed check. A `--node` value that is not `CORES:MEMORY_MIB` or `CORES:MEMORY_MIB:TARGET` is status 2, and so is a command with none of `--easystack`, `--node`, and `--hooks`, or a `--parallel` or `--max-parallel` of 0. A `--hooks` file that is not valid Python, has no module-level `PARALLELISM_LIMITS`, or has a row the model cannot follow is status 1, and the message names the line. `stack bot-classify` is status 0 for every class, and status 2 when a path is a directory. `stack batch` is status 1 when the plan includes, or depends on, an entry the architecture cannot build. `stack provided` is status 1 when a build-list line names software the baseline already provides, names no package, uses a toolchain other than 2026.1 or GCCcore-15.2.0 below it, sets `--hooks`, or belongs in a `--family-lock`. A group-restricted warning is status 0 unless `--strict`. Status 2 is when neither `--installed` nor `--baseline-lock` is set. `stack shard` is status 1 when a build-list line cannot be resolved and is not fetched by EasyBuild, or when a `--commit-cache` download fails before an HTTP status, and writes nothing in either case. `--shards 0`, a list with no lines, and a `--commit-tree` or `--pr-tree` that is not `COMMIT=DIR` or `N=DIR` are status 2. `stack shadow` is status 1 when a site-layer recipe shadows a base-stack module, or when a recipe does not parse, and status 0 when every recipe names software the base does not provide. `ledger verify` is status 1 when a proof or a head signature does not check, and status 2 without exactly one of `--record` with `--head` and `--from` with `--to`. `ledger append` is status 1 when the record is outside the format, the log no longer reads, or the log is not at `--expect-head`; it then writes nothing.
+A rejected value names the flag and the value. A missing file names the flag and the path. Status 2 is the same status clap already uses. A recipe that fails `recipe lint` or `recipe check` is status 1: the files were read and the check failed. `stack from-commit` is status 1 when any pin is `released`, and status 0 when every pin is `newer` or `unknown` or the files name no pin. A file name with no `eb-X.Y.Z`, and no `--easybuild-version`, is status 2. `stack arch` is status 1 when an entry is unsupported or flagged, or when `--probe-sources` reports `unreachable` or `arch-missing` sources. `stack files` is status 1 when a patch or an easyconfig is missing, and status 0 when the only lines are `no_url` or `unchecked`. `stack generation` is status 1 on any finding, and status 2 when an easystack path names no EESSI version and `--eessi-version` is absent. `stack known-failures` is status 0 when it prints warnings: they are advice for the pull request, not a refusal; with `--strict` it is status 1 when a warning remains, and status 0 when every hit is remedied. `stack oom` is status 0 when it warns: the warnings are advice, not a failed check. A `--node` value that is not `CORES:MEMORY_MIB` or `CORES:MEMORY_MIB:TARGET` is status 2, and so is a command with none of `--easystack`, `--node`, and `--hooks`, or a `--parallel` or `--max-parallel` of 0. A `--hooks` file that is not valid Python, has no module-level `PARALLELISM_LIMITS`, or has a row the model cannot follow is status 1, and the message names the line. `stack bot-classify` is status 0 for every class, and status 2 when a path is a directory. `stack batch` is status 1 when the plan includes, or depends on, an entry the architecture cannot build. `stack provided` is status 1 when a build-list line names software the baseline already provides, names no package, uses a toolchain other than 2026.1 or GCCcore-15.2.0 below it, sets `--hooks`, or belongs in a `--family-lock`. A group-restricted warning is status 0 unless `--strict`. Status 2 is when neither `--installed` nor `--baseline-lock` is set. `stack shard` is status 1 when a build-list line cannot be resolved and is not fetched by EasyBuild, or when a `--commit-cache` download fails before an HTTP status, and writes nothing in either case. `--shards 0`, a list with no lines, and a `--commit-tree` or `--pr-tree` that is not `COMMIT=DIR` or `N=DIR` are status 2. `stack shadow` is status 1 when a site-layer recipe shadows a base-stack module, or when a recipe does not parse, and status 0 when every recipe names software the base does not provide. `ledger verify` is status 1 when a proof or a head signature does not check, and status 2 without exactly one of `--record` with `--head` and `--from` with `--to`. `ledger append` is status 1 when the record is outside the format, the log no longer reads, or the log is not at `--expect-head`; it then writes nothing. `ledger backfill`, `ledger anchor`, `ledger verify-anchors` and `ledger project` are status 2 for every refusal: a path that is relative, not normalised, a symbolic link or a second hard link; a manifest that does not hash to `--manifest-sha256` or is outside its schema; a proof, a signature or a head that does not check; a stale head; or anchors that disagree. They write nothing when refused. `ledger backfill` and `ledger anchor` are status 75 when an append or a signature did not finish.
 
 `--help` for every command has an example and a description of every flag. A default that the command applies is printed in that help. A directory that receives several artifacts is `--out-dir`. A single output file is `--out` (`--lock-out` for the lock `stack solve` writes). `--installed`, `--easyconfigs`, `--filter-deps`, and `--generated-at` use those names on every command that takes them.
 
@@ -6783,6 +6784,10 @@ Package commands take the toolchain as `--toolchain name/version`, the spelling 
 | `ledger find` | Find records by `field=value` keys through the tile log's sidecars, each proven in the checkpoint |
 | `ledger show` | List ledger records newest first, for one module or software name |
 | `ledger verify` | Check that a record is in a signed head, or that one signed head extends another, and that the tile log agrees |
+| `ledger backfill` | Append `finding` records for software observed at a stated time, from a manifest pinned by its SHA-256 |
+| `ledger anchor` | Sign today's head and add it to a directory of immutable daily anchors |
+| `ledger verify-anchors` | Prove the chain of daily anchors against the log |
+| `ledger project` | Write per-package JSON and Markdown history from a log whose signed head covers every record |
 | `mcp [--workspace]` | Serve each CLI workflow over stdio, including `pr-overlap`, `rebuild-set`, `component-reach`, and `easyblock-reach`, with recipe file tools rooted at `--workspace` |
 | `easyblock-reach` | Report easyconfigs and installed modules reached by an easyblock or framework change |
 
@@ -8715,6 +8720,21 @@ eb-stack ledger verify \
 eb-stack ledger verify \
   --log ledger/2026.06.jsonl --public-key KEY.pub \
   --from HEAD1.json --to HEAD2.json [--tiles DIR] [--origin ORIGIN]
+
+eb-stack ledger backfill \
+  --log /ABS/ledger.jsonl --key /ABS/KEY.pem --head /ABS/HEAD.json \
+  --public-key /ABS/KEY.pub --manifest /ABS/manifest.json --manifest-sha256 HEX
+
+eb-stack ledger anchor \
+  --log /ABS/ledger.jsonl --key /ABS/KEY.pem --public-key /ABS/KEY.pub \
+  --anchors /ABS/anchors
+
+eb-stack ledger verify-anchors \
+  --log /ABS/ledger.jsonl --public-key /ABS/KEY.pub --anchors /ABS/anchors
+
+eb-stack ledger project \
+  --log /ABS/ledger.jsonl --head /ABS/HEAD.json --public-key /ABS/KEY.pub \
+  --out /ABS/history
 ```
 
 A ledger is one append-only JSON Lines file per stack. Each line is one
@@ -8881,6 +8901,92 @@ a tile log that disagrees with the ledger moves both logs aside. The
 data tile log still holds exactly the ledger's lines, so the signed
 heads, `verify` and any tlog-tiles client are unchanged; the index comes
 from the `rfc9162-log` crate.
+
+**Maintenance commands.** `backfill`, `anchor`, `verify-anchors` and
+`project` take every path as an absolute, normalised path with no
+symbolic link in it; a relative path, a `..`, an alias through a link,
+and a file with a second hard link are refused. Each reads the log once,
+copies the bytes into a private directory, builds a tile log beside the
+copy, and runs the `verify` checks on it, so what it anchors or projects
+is what it verified. Each prints one JSON object, keys sorted.
+
+**Backfill manifest.** `backfill` records software that was installed
+before the ledger existed. The manifest is a JSON object, refused unless
+its bytes hash to `--manifest-sha256`, with exactly these fields:
+
+| Field | Value |
+| --- | --- |
+| `schema` | `eb-staged-rebuild/observed-backfill/1` |
+| `manifest_id` | 1 to 64 of `A-Z a-z 0-9 . _ -`, starting with a letter or a digit |
+| `observed_at` | `YYYY-MM-DDTHH:MM:SSZ`, not after the current time |
+| `observer`, `stack`, `target` | Non-empty text without control characters or edge spaces; `stack` must be the log's stack |
+| `observations` | A non-empty list. Each item has `module`, `location` (an absolute, normalised path), `provenance` (a non-empty list of `{ref, kind?, sha256?}`), and optionally `modulefile` (`{path, sha256}`) and `note`. A `module` at one `location` appears once |
+
+An unknown field anywhere, a repeated key and a non-integer number are
+refused. Each observation becomes one `finding` record with `ts` set to
+`observed_at`, `actor` to `observer`, no `stage`, a `reason` that says no
+history before the observation is recorded, and a `build` object with
+`event_id` (`eb-staged-rebuild/backfill/<manifest_id>/<module>@<16 hex of the location's SHA-256>`),
+`tool`, `kind` `observed-backfill`, `manifest_id`, `manifest_sha256`,
+`observed_at`, `provenance` and `note`. Every record comes from the
+manifest alone, so a rerun is acknowledged as already recorded and
+appends nothing. A manifest id already in the log with another
+SHA-256, and an event id in the log with other content, are refused
+before anything is appended. `--key` must not be inside the log's or the
+head's directory. After each append `--head` holds the new signed head,
+and `verify` must prove the record is in it. The summary has
+`manifest_id`, `manifest_sha256`, `appended`, `replayed` and one
+`receipts` entry per record (`index`, `id`, `event_id`, `head_size`,
+`head_root`, `replayed`, `verified`). An interrupted tail of the log is
+moved aside as `append` moves it.
+
+**Daily anchors.** `anchor` signs the log's head at the current time and
+publishes it as `ANCHORS/YYYY-MM-DD.head.json` for that day in UTC, mode
+`0444` with one link. It first proves, with `verify`, that the new head
+binds to the log and extends the latest anchor. An anchor file is never
+replaced: on a day that has one, `anchor` proves the day's anchor still
+extends into the log and reports `"status": "exists"` instead of
+`"published"`. The summary has `status`, `day`, `path`, `size` and `root`.
+`ANCHORS` must exist outside the log's directory and `--key` outside both.
+An anchor dated after today, an anchor whose head is signed on another
+day than its name, an anchor with a second link, two anchors signed by
+different keys, an anchor that does not extend the one before it, and a
+log that a new head does not extend (rewritten or truncated) are refused,
+and no anchor is added. `anchor` holds `ANCHORS/.lock` (`flock`) and
+`ANCHORS/.lock.posix` (a POSIX record lock) while it runs, waits at most
+60 seconds for another run, and stages the new head in
+`ANCHORS/.anchor-staging-*`, which the next run removes if a run was
+killed. `verify-anchors` proves that each anchor extends the one before
+it and that the latest binds to the log, and prints `anchors` and, when
+there is one, `latest`, `size` and `root`.
+
+**Package history.** `project` reads the log and `--head`, which must be
+signed by `--public-key` and cover every record; a head that covers
+fewer records is refused with `sign a current head before reading`. It
+writes, under `--out`:
+
+| File | Content |
+| --- | --- |
+| `index.json` | Schema `eb-staged-rebuild/ledger-history/1`, the verified `head` (`size`, `root`, `ts`, `public_key`), `stack`, one entry per package (`name`, `json`, `markdown`, `modules`, `events`) and every link `problem` |
+| `index.md` | The same as a Markdown table with links to the package pages |
+| `packages/NAME.json` | The package's `modules` (`state`, `location`, `last_change`, `access`, `findings`), every `event` and its `problems` |
+| `packages/NAME.md` | The modules and events as Markdown tables |
+
+A package is the part of `module` before the first `/`; `NAME` is its
+percent-encoded spelling, with a SHA-256 suffix when that is empty, `.`,
+`..` or over 150 characters. A `correction` that is stageless or
+`finished` and names an earlier record marks that record `corrected`,
+unless a later correction voided it; a `started` correction is listed in
+`correction_pending_by` and an `aborted` one is ignored. A module's state
+is `installed`, `retired`, `removed`, `moved`, `observed` (only a
+`finding`) or `unknown`, from its last effective finished record. Every
+text in a Markdown cell is escaped: HTML, Markdown markup and the pipe
+are escaped, and line breaks and bidirectional controls print as
+`U+XXXX`. JSON files are ASCII with sorted keys. The same log and head
+give the same bytes. `--out` must hold nothing but a projection and must
+not hold the log, the head or the key. Package files are replaced one by
+one through `.NAME.new` and the index last, so an interrupted run leaves
+the previous index; files of packages no longer in the log are removed.
 
 # `repro summary`
 
@@ -9378,7 +9484,7 @@ absolute path there.
 
 # Tools
 
-The catalog has 60 tools. `tools/list` returns one tool for each CLI
+The catalog has 64 tools. `tools/list` returns one tool for each CLI
 command in the table, and the recipe and easyblock tools that have no
 command. `mcp` publishes that catalog and has no tool of its own. Each
 command's tool calls the same runner as that command. The `text` field
@@ -9432,6 +9538,10 @@ name in the schema `tools/list` returns. The
 | `ledger find` | `eb_ledger_find` |
 | `ledger show` | `eb_ledger_show` |
 | `ledger verify` | `eb_ledger_verify` |
+| `ledger backfill` | `eb_ledger_backfill` |
+| `ledger anchor` | `eb_ledger_anchor` |
+| `ledger verify-anchors` | `eb_ledger_verify_anchors` |
+| `ledger project` | `eb_ledger_project` |
 | `easyblock-reach` | `eb_easyblock_reach` |
 | `pr-overlap` | `eb_pr_overlap` |
 | `rebuild-set` | `eb_rebuild_set` |
@@ -13612,7 +13722,7 @@ table. `reverse=0` again, for the same reason as the CMakeMake run.
 
 # The same document over MCP
 
-The Model Context Protocol (MCP) catalog has 60 tools. `tools/list` prints
+The Model Context Protocol (MCP) catalog has 64 tools. `tools/list` prints
 their names:
 
 ```bash
@@ -13682,9 +13792,13 @@ eb_ledger_tiles
 eb_ledger_find
 eb_ledger_show
 eb_ledger_verify
+eb_ledger_backfill
+eb_ledger_anchor
+eb_ledger_verify_anchors
+eb_ledger_project
 ```
 
-That is 60 tools.
+That is 64 tools.
 `eb_stack_sbom` writes the CycloneDX file `stack sbom` writes.
 Its `tools/list` description reads: "Emit CycloneDX from an existing stack lock, reading dependency edges and source checksums from the easyconfigs the lock names. With backport_list, also write the modules whose reach class justifies a backport."
 `eb_stack_sbom` reads the Cbc lock:

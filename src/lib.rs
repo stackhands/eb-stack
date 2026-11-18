@@ -51,6 +51,8 @@ pub mod input_hash;
 mod install_prefix;
 pub mod jenkins;
 pub mod ledger;
+#[cfg(unix)]
+pub mod ledger_maintenance;
 pub mod ledger_tiles;
 pub mod luarocks;
 mod manifest;

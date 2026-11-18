@@ -77,7 +77,7 @@ stack    solve | sbom | order | easystack | sections | from-commit | gap | provi
 target   list | doctor
 campaign run | status | finding claim | finding resolve
 repro    summary
-ledger   append | head | tiles | find | show | verify
+ledger   append | head | tiles | find | show | verify | backfill | anchor | verify-anchors | project
 easyblock-reach
 pr-overlap
 rebuild-set

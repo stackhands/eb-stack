@@ -47,7 +47,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Records, proofs, and POSIX writer locks
-        run: cargo test --locked --test ledger --test ledger_posix_lock --test ledger_lock_aliases --test ledger_retry --test ledger_durability --test ledger_tile_namespace
+        run: cargo test --locked --test ledger --test ledger_posix_lock --test ledger_lock_aliases --test ledger_retry --test ledger_durability --test ledger_tile_namespace --test ledger_maintenance
 
   msrv:
     name: Rust 1.90 minimum
