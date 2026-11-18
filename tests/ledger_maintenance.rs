@@ -1076,7 +1076,7 @@ fn untrusted_text_is_escaped() {
         json!({"actor": "a\n# injected heading\n| x | y |", "reason": "\u{202e}txt.exe & <b>"}),
     );
     fixture.append("../../../etc/1", "install", json!({}));
-    fixture.append("caf\u{e9}/1", "access", json!({"reason": "ok"}));
+    fixture.append("r\u{e9}sum\u{e9}/1", "access", json!({"reason": "ok"}));
     fixture.sign(&fixture.key, &fixture.head, Some("2026-11-03T12:00:00Z"));
     fixture.project().expect("project");
     let files = tree(&fixture.out);

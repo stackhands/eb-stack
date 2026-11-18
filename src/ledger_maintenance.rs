@@ -2609,6 +2609,6 @@ mod tests {
             quote("packages/evil%7Cpkg.md", "/"),
             "packages/evil%257Cpkg.md"
         );
-        assert_eq!(quote("caf\u{e9}~", ""), "caf%C3%A9~");
+        assert_eq!(quote("r\u{e9}sum\u{e9}~", ""), "r%C3%A9sum%C3%A9~");
     }
 }
