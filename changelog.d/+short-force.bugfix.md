@@ -1,1 +1,0 @@
-`stack shard` counts `-f`, EasyBuild's short form of `--force`, as forcing a rebuild, as it counts `--force` and `--rebuild`. A line that rebuilt an installed module with `-f` was planned as building nothing: the module had no weight and was in no closure, so a line that needs it could land in another shard and build while `eb -f` rebuilt it.

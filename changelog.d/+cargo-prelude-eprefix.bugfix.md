@@ -1,1 +1,0 @@
-A step of the Cargo prelude that fails stops EasyBuild's install command again: the host triple is read inside the prelude's `&&` chain, not after `_triple="";`, whose semicolon ended the chain. A missing or failing `rustc` still leaves the triple empty, even under `pipefail`.

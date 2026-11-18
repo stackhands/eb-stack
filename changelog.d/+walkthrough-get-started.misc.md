@@ -1,1 +1,0 @@
-The doc walkthrough tests cover `get-started.org`: its bash blocks follow the same path rules as the other pages, and each block is run and must print the output the page quotes, with `stack admit` exiting 78.

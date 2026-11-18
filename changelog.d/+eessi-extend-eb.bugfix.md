@@ -1,1 +1,0 @@
-`scripts/eessi-extend-eb.sh` defaults to EESSI 2026.06, takes the repository from `EESSI_CVMFS_REPO`, puts the compatibility layer's `ld` on `PATH` from `EESSI_EPREFIX` whether or not `EESSI_VERSION` was set, and creates a named `EESSI_USER_INSTALL` as well as the default one. The Cargo prelude takes the compatibility layer from `EESSI_EPREFIX` too.

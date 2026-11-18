@@ -4,6 +4,62 @@ All notable changes to this project are documented here.
 
 <!-- towncrier release notes start -->
 
+## 0.8.0 - 2026-11-18
+
+### Added
+
+- `ledger backfill`, `ledger anchor`, `ledger verify-anchors` and `ledger project` maintain a ledger in process. `backfill` appends a `finding` record for each observation of a manifest pinned by its SHA-256, at the observation time, and a rerun appends nothing. `anchor` signs the day's head and publishes it once as `ANCHORS/YYYY-MM-DD.head.json` after `verify` proves it binds to the log and extends the latest anchor; `verify-anchors` proves the chain. `project` writes `index.json`, `index.md` and per-package JSON and Markdown history from a log whose signed head covers every record. Each prints one JSON object and exits 2 when refused; `backfill` and `anchor` exit 75 when an append or a signature did not finish. Each has an MCP tool: `eb_ledger_backfill`, `eb_ledger_anchor`, `eb_ledger_verify_anchors` and `eb_ledger_project`.
+
+### Fixed
+
+- A `from-commit` read uses a directory it created for that read. It no longer shares `eb-stack-from-commit-<pid>` with every other read in the process, and it does not remove a directory that was already there.
+- A failed verification command is a `sanity` finding, or `timeout`, unless its output names a transport, executor, runtime, or resource cause, so an Lmod `error:` line no longer makes it `compile`. Finding summaries and campaign history name the class and exit status as the state file does, `sanity` and `exit 1`, not `Sanity` and `exit Some(1)`.
+- A generated stack policy is a new file for each solve. The MCP server no longer reuses `eb-stack-policy-<toolchain>-<pid>.json`, and it removes the file when the solve returns.
+- A job `stack admit` refuses for want of inodes carries a `refusal`: the inodes it is short, then the `available`, `reserved`, `footprint` and `margin` that decided it. It was `null`, so only a failed quota or scheduler command said why.
+- A lock's timestamp is `SOURCE_DATE_EPOCH` when that variable is a number of seconds. Two solves of the same inputs then write the same time.
+- A pin on a package the trees have only outside the solve's toolchain hierarchy, in a `stack solve` policy or a `package plan` / `package bump` stack policy, now fails with the hierarchy searched and the toolchains the trees have the package on, instead of "unknown package" and "names a package with no candidate at all". A stack-policy exclusion gets the same message.
+- A step of the Cargo prelude that fails stops EasyBuild's install command again: the host triple is read inside the prelude's `&&` chain, not after `_triple="";`, whose semicolon ended the chain. A missing or failing `rustc` still leaves the triple empty, even under `pipefail`.
+- A verification command runs with the module tree of the attempt's install path, `<installpath>/modules/all` by default, first on `MODULEPATH` and on `EESSI_EXTRA_MODULEPATH`, so `module load {module}` finds the module the attempt built, also after the EESSI init replaces `MODULEPATH`.
+- Compatible-release, caret, and tilde requirements exclude a pre-release of the next series. `1.3.0rc1` is outside `~=1.2.0` and `~1.2.3`, and `2.0.0rc1` is outside `^1.2.0`.
+- Date versions such as LAMMPS's `29Aug2024` compare by year, month and day, and a following `_updateN` by its number, so `stack gap` names a LAMMPS `22Jul2025_update4` recipe as the newest outside the generation instead of `29Aug2024`. Requirements such as `>=29Aug2024` compare the same way.
+- The CI smoke step on the eOn core fixture checks `eOn-2.17.10-foss-2026.1.eb`, the recipe the fixture holds, and passes only when `recipe check` fails on the stack dependencies the drafts leave out, with the drafts supplying quill, readcon-core and rgpot. It named the 2.17.2 recipe the fixture no longer has, so it passed on "No such file or directory" without checking anything. `tests/eon_core_rgpot.rs` runs the step as CI runs it.
+- The `package plan` residuals for an inferred moduleclass and for a dropped build requirement, and the source finding for a tree that declares no version, read as one sentence instead of carrying a run of spaces where the source line was wrapped.
+- The cargo-on-EESSI prelude quotes `CC` and `LIBRARY_PATH`. `CC='gcc; echo pwned'` is stored as the linker, and it is not run.
+- The import scan of a PyPI source tree skips standard-library modules, test suites, documentation, examples and maintainer scripts, and reads only `import` statements outside triple-quoted strings, so natsort 8.4.0 has 3 `undeclared-import` residuals instead of 29. An import whose name is part of one already reported, such as `requests` after `requests_cache`, is still reported.
+- `Cargo.lock` pins rustls 0.23.46 and rustix 1.1.6, the patched releases for RUSTSEC-2026-0285, RUSTSEC-2026-0346, RUSTSEC-2026-0348, RUSTSEC-2026-0349, and RUSTSEC-2026-0486.
+- `component-reach` resolves the closure over every recipe in the trees, so dependents on `gfbf` and `gompi` toolchains of the generation are in it. On easybuild-easyconfigs develop with the EESSI 2026.06 easystack, curl's closure gains 19 dependents on `gfbf-2026.1` and `gompi-2026.1`, such as R, netCDF, HDF5 and SciPy-bundle, and 12 recipes only they pull in, such as Tk through CMake, so the counts go from `review=106 no-rebuild=16` to `review=133 no-rebuild=20`. Requirements no recipe resolves are listed in `closure_unresolved` instead of being dropped.
+- `easyblock-reach` heads `reach.toml` and `reach.md` with a line that says only that `eb-stack easyblock-reach` generated the file, instead of the `pr-overlap` warning about a data branch that is never merged. The report is written to `--out-dir`, and no branch holds it.
+- `ledger show` prints each record's `stage` after `action`, so the started and finished records of one staged rebuild no longer print as two identical rows.
+- `package bump` and `package plan` keep a dependency's stated versionsuffix when the robot tree has a build with it that the solve can take: `('HDF5', '1.14.2', '-mpi')` and `('HDF5', '1.14.2', '')` no longer become the `-serial` build because that one ranks higher. The solve takes another suffix only when the target has no build with the stated one, as when `-CUDA-12.9.1` moves to `-CUDA-13.3.0` across a generation.
+- `scripts/eessi-extend-eb.sh` counts a present `EESSI_*_INSTALL` variable as set when the value is empty, matching EESSI-extend. An empty `EESSI_SITE_INSTALL` or `EESSI_CVMFS_INSTALL` stays in that mode and no longer also creates a user prefix.
+- `scripts/eessi-extend-eb.sh` defaults to EESSI 2026.06, takes the repository from `EESSI_CVMFS_REPO`, puts the compatibility layer's `ld` on `PATH` from `EESSI_EPREFIX` whether or not `EESSI_VERSION` was set, and creates a named `EESSI_USER_INSTALL` as well as the default one. The Cargo prelude takes the compatibility layer from `EESSI_EPREFIX` too.
+- `scripts/eessi-extend-eb.sh` still reaches EasyBuild when `rustc` is not on `PATH`, and the Cargo prelude takes a mirror's compatibility layer from `EESSI_CVMFS_REPO` when `EESSI_EPREFIX` is unset. CI runs `tests/eessi_extend_eb_script.rs`.
+- `stack gap` picks the bump source of a `no-recipe` row among builds of the newest version by toolchain family and generation instead of file name: a build on a toolchain family of the generation comes first, then the newest toolchain generation, so QuantumESPRESSO 7.5 is bumped from `foss-2025b` rather than `NVHPC-25.3-CUDA-12.8.0`, and a recipe on `GCCcore-14.3.0` is preferred to one on `GCCcore-11.3.0`.
+- `stack shard` counts `-f`, EasyBuild's short form of `--force`, as forcing a rebuild, as it counts `--force` and `--rebuild`. A line that rebuilt an installed module with `-f` was planned as building nothing: the module had no weight and was in no closure, so a line that needs it could land in another shard and build while `eb -f` rebuilt it.
+- `target doctor` passes the EasyBuild probe of a target with `EB_LOCAL_EESSI_EXTEND` on only when `--version` prints `This is EasyBuild`. eb-local 2.4.0 has no extend mode, answered `--version` itself and passed; the failed check now carries a `reason`.
+
+### Documentation
+
+- The EESSI target in `docs/orgmode/reference/targets.org` and `examples/targets/eessi-extend.toml` needs eb-local 2.5.0 or later, the first release with `EB_LOCAL_EESSI_EXTEND`.
+- The PyPI how-to and the `package-plan` skill plan the pure-Python beautifulsoup4 example on `GCCcore/15.2.0`, where EESSI 2026.06 installs Python, `Python-bundle-PyPI` and `BeautifulSoup`, with the new `examples/stacks/eessi-python-gcccore.toml` policy, and the fixture robot holds the GCCcore-15.2.0 builds of Python 3.14.2 and `Python-bundle-PyPI` 2026.04. The numpy example stays on `foss/2026.1`, because `SciPy-bundle` is never on GCCcore.
+- The README says when EasyBuild alone is enough, and which stackhands tool calls each `stack` and `ledger` verb.
+- The `--help` text matches what the commands do: the top-level help names exit status 78 from `stack admit`; the second `stack admit` example reads the quota and the scheduler inside `--lock` with `--quota-cmd` and `--live-jobs-cmd`, instead of expanding `squeue` before the lock; `campaign --help` shows `campaign run`; `stack generation --help` maps 2026.06 to 2026.1; and `stack batch --installed-modulerc` says it reads a module tree as well as a `.modulerc.lua` file.
+- The `stack shard` and `stack capacity` help examples, the shard how-to, the capacity reference and the skills name a neutral example site, not one cluster: a `zen2.list` or `zen4.list` build list, a commit cache under `$SCRATCH`, the node feature `local-disk`, and the site's build host.
+- The docs match the code again: `AGENTS.md` lists `package latest` and `stack capacity`; the `cli.org` MCP list names `eb_stack_footprints` and `eb_stack_admit`; `docs/campaign-boundary.md` cites the current `src/campaign.rs` and `src/foreign.rs` lines and the `run_target` calls; the shard how-to says to plan with EESSI-extend's `EASYBUILD_FILTER_DEPS`, or pass that list as `--filter-deps`; the PyPI and CRAN how-tos say the robot tree is `$EBROOTEASYBUILD/easybuild/easyconfigs` from EESSI's EasyBuild module; the commented pins in the EESSI example policies name the EESSI 2026.06 bundles; and the `provides` and `campaign` API docs have no broken link or stray `///`.
+- The shard how-to, tests and fixtures no longer carry one site's names: the `stack shard` examples build `site-2026e.list`, and the `--include-systems` values in the tests are `site-zen2` and `site`.
+- The target reference and the eOn on EESSI how-to say that each campaign attempt installs into `<work_root>/install-attempts/<package>-<version>/attempt-<N>`, which takes precedence over the prefix EESSI-extend derives from `EESSI_USER_INSTALL`.
+
+### Removed
+
+- The EESSI target runs `eb-local` with `EB_LOCAL_EESSI_EXTEND=1` instead of `scripts/eessi-extend-eb.sh`, and the script is removed. eb-stack does not build eb-local; the container bind-mounts the binary the operator installed. A present empty `EESSI_*_INSTALL` still counts as that mode, which `eb-local` enforces. With no `EESSI_*_INSTALL` set, installs move from the script's `$HOME/EESSI` to EESSI-extend's own `$HOME/eessi`; set `EESSI_USER_INSTALL` in `[targets.easybuild.environment]` to keep the old prefix.
+
+### Changed
+
+- News fragments in `changelog.d/`, assembled into `CHANGELOG.md` by towncrier at release, as in the other stackhands repositories.
+- The doc walkthrough tests cover `get-started.org`: its bash blocks follow the same path rules as the other pages, and each block is run and must print the output the page quotes, with `stack admit` exiting 78.
+- `skills/golden-replay/run-on-builder.sh` has no default builder: set `EB_STACK_BUILDER` to the builder's ssh destination (it was `rg.terra`). Without `EB_STACK_BIN` it runs the debug build of the builder's checkout at the same place under the home directory as the local one, instead of one fixed checkout path.
+
+
 ## 0.7.4 - 2026-11-13
 
 ### Added

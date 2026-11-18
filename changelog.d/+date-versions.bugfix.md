@@ -1,1 +1,0 @@
-Date versions such as LAMMPS's `29Aug2024` compare by year, month and day, and a following `_updateN` by its number, so `stack gap` names a LAMMPS `22Jul2025_update4` recipe as the newest outside the generation instead of `29Aug2024`. Requirements such as `>=29Aug2024` compare the same way.

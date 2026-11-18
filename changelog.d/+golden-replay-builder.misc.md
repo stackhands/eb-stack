@@ -1,1 +1,0 @@
-`skills/golden-replay/run-on-builder.sh` has no default builder: set `EB_STACK_BUILDER` to the builder's ssh destination (it was `rg.terra`). Without `EB_STACK_BIN` it runs the debug build of the builder's checkout at the same place under the home directory as the local one, instead of one fixed checkout path.
