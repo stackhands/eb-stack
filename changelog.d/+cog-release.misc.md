@@ -1,0 +1,1 @@
+A release is cut with `cog bump`: `cog.toml` runs `tools/release-prepare`, which builds the changelog, sets the version in every file that declares or states it, and regenerates `llms.txt` and `llms-full.txt`. It refuses when a listed file no longer names the old version.
