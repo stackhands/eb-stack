@@ -774,3 +774,162 @@ fn run_to(args: &[&str], out: &Path) -> std::process::Output {
         .output()
         .expect("spawn")
 }
+
+/// Source and example blocks of an Org page in reading order, as
+/// `(is_source, body)`.
+fn blocks_in_order(text: &str) -> Vec<(bool, String)> {
+    let mut blocks = Vec::new();
+    let mut rest = text;
+    while let Some(start) = rest.find("#+begin_") {
+        rest = &rest[start + "#+begin_".len()..];
+        let (kind, tail) = rest.split_once('\n').expect("block header");
+        let is_source = kind.starts_with("src ");
+        let close = if is_source {
+            "#+end_src"
+        } else {
+            "#+end_example"
+        };
+        let end = tail
+            .find(close)
+            .unwrap_or_else(|| panic!("{close} missing"));
+        if is_source || kind == "example" {
+            blocks.push((is_source, tail[..end].to_string()));
+        }
+        rest = &tail[end..];
+    }
+    blocks
+}
+
+/// A summary line such as `site=10 in-stack=0 recipe=9`: three or more
+/// `key=value` words.
+fn is_count_line(line: &str) -> bool {
+    let words: Vec<&str> = line.split_whitespace().collect();
+    words.len() >= 3
+        && words.iter().all(|word| {
+            word.split_once('=').is_some_and(|(key, _)| {
+                !key.is_empty()
+                    && key
+                        .chars()
+                        .all(|c| c.is_ascii_lowercase() || c == '_' || c == '-')
+            })
+        })
+}
+
+/// A count line a page quotes under a command that needs nothing outside
+/// this checkout is a line that command prints.
+#[test]
+fn quoted_count_lines_are_the_lines_the_commands_print() {
+    const OUTSIDE: &[&str] = &[
+        "$",
+        "~/",
+        "podman",
+        "rsync",
+        "cargo",
+        "sudo",
+        "git ",
+        "ssh",
+        "source ",
+        "curl",
+        "jq ",
+        "--probe-sources",
+    ];
+    let bin = Path::new(env!("CARGO_BIN_EXE_eb-stack")).parent().unwrap();
+    let path = format!(
+        "{}:{}",
+        bin.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let mut checked = 0;
+    let mut wrong = Vec::new();
+    for page in org_files() {
+        let text = std::fs::read_to_string(&page).expect("read");
+        let rel = page
+            .strip_prefix(root())
+            .unwrap_or(&page)
+            .display()
+            .to_string();
+        let tmp = tempfile::tempdir().expect("temp");
+        let scratch = format!("{}/", tmp.path().display());
+        let blocks = blocks_in_order(&text);
+        for pair in blocks.windows(2) {
+            let (is_source, command) = &pair[0];
+            let (quoted_is_source, quoted) = &pair[1];
+            if !is_source || *quoted_is_source || !command.contains("eb-stack") {
+                continue;
+            }
+            let counts: Vec<&str> = quoted.lines().filter(|line| is_count_line(line)).collect();
+            if counts.is_empty() || OUTSIDE.iter().any(|word| command.contains(word)) {
+                continue;
+            }
+            let output = Command::new("bash")
+                .current_dir(root())
+                .env("PATH", &path)
+                .env_remove("EASYBUILD_FILTER_DEPS")
+                .args(["-c"])
+                .arg(
+                    command
+                        .replace("/tmp/", &scratch)
+                        .replace("--out-dir build/", &format!("--out-dir {scratch}")),
+                )
+                .output()
+                .expect("spawn bash");
+            let printed = format!(
+                "{}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            )
+            .replace(&scratch, "/tmp/");
+            for line in counts {
+                checked += 1;
+                if !printed.lines().any(|got| got.trim_end() == line.trim_end()) {
+                    wrong.push(format!(
+                        "{rel} quotes\n  {line}\nunder\n{command}\nwhich printed\n{printed}"
+                    ));
+                }
+            }
+        }
+    }
+    assert!(checked >= 20, "only {checked} count lines were compared");
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
+/// The stack-gap how-to names every file its command writes.
+#[test]
+fn the_gap_howto_names_every_file_the_command_writes() {
+    let tmp = tempfile::tempdir().expect("temp");
+    let out = Command::new(env!("CARGO_BIN_EXE_eb-stack"))
+        .current_dir(root())
+        .env_remove("EASYBUILD_FILTER_DEPS")
+        .args([
+            "stack",
+            "gap",
+            "--site",
+            "tests/rebuild_set_fixtures/installed.txt",
+            "--installed",
+            "tests/pr_overlap_layer/installed.txt",
+            "--easyconfigs",
+            "tests/rebuild_set_fixtures/release",
+            "--generation",
+            "2026.1",
+            "--out-dir",
+        ])
+        .arg(tmp.path())
+        .output()
+        .expect("stack gap");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let page = std::fs::read_to_string(root().join("docs/orgmode/howto/stack-gap.org")).unwrap();
+    let mut written = 0;
+    for entry in std::fs::read_dir(tmp.path()).unwrap() {
+        let name = entry.unwrap().file_name().into_string().unwrap();
+        written += 1;
+        assert!(
+            page.contains(&format!("~{name}~")),
+            "the page does not name {name}"
+        );
+    }
+    assert!(written >= 11, "stack gap wrote {written} files");
+}

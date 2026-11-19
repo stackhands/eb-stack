@@ -28,10 +28,19 @@ The installed file in that command is a comment, so nothing counts as
 already provided. The command prints:
 
 #+begin_example
-site=10 in-stack=0 recipe=9 no-recipe=1 excluded=0 out=/tmp/gap-first
+site=10 in-stack=0 filtered=0 open-layer=0 recipe=9 open-easyconfigs=0 no-recipe=1 excluded=0 out=/tmp/gap-first
 #+end_example
 
-~--out-dir~ receives three files. ~gap.tsv~ is one row per site name:
+~filtered~, ~open-layer~ and ~open-easyconfigs~ are 0 because the command
+passes no ~--filter-deps~, ~--open-layer~ or ~--open-easyconfigs~. See
+[[file:module-gap.org][route the modules a stack does not have]] for
+them.
+
+~--out-dir~ receives ~gap.tsv~, ~roots.txt~, ~bump-sources.txt~,
+~version-change.tsv~, and one TSV per route (~in-stack.tsv~,
+~site-only.tsv~, ~filtered.tsv~, ~open-layer.tsv~, ~recipe.tsv~,
+~open-easyconfigs.tsv~, ~bump.tsv~). ~gap.tsv~ is one row per site name, ten
+here. Two of them are:
 
 #+begin_example
 name	route	recipe	newest_elsewhere	reason
