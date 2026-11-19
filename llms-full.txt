@@ -9243,8 +9243,8 @@ See [the captured capacity and storage-policy interface](https://eb-stack.rgoswa
 
 # Capacity is an observation
 
-This page describes the `main` source interface. The `0.7.3` release binary
-does not provide `stack capacity` or `stack shard --storage-policy`.
+`stack capacity` and `stack shard --storage-policy` are in release 0.7.4 and
+every release after it. This page describes both.
 
 `stack capacity` reads one normalized JSON snapshot. It does not query the
 scheduler, probe hosts, predict a queue wait, reserve a node or grant storage
@@ -9289,10 +9289,10 @@ Collectors must include hidden configured partitions when establishing a
 complete view, and minimize scheduler RPCs.
 
 ```sh
-eb-stack stack capacity \\
-  --snapshot tests/planning_capacity_fixtures/snapshot.json \\
-  --partition local --target example/host --feature local-disk \\
-  --cpus 4 --memory-mib 4096 --exclusive-node true --max-slots-per-node 1 \\
+eb-stack stack capacity \
+  --snapshot tests/planning_capacity_fixtures/snapshot.json \
+  --partition local --target example/host --feature local-disk \
+  --cpus 4 --memory-mib 4096 --exclusive-node true --max-slots-per-node 1 \
   --generated-at 2026-01-01T12:00:10Z
 ```
 
@@ -9332,14 +9332,14 @@ expected SHA256. Its fields are:
   The node-local request must retain the configured feature exactly.
 
 ```sh
-eb-stack stack shard \\
-  --build-list tests/stack_shard_fixtures/wave1.list \\
-  --easyconfigs tests/stack_shard_fixtures/easyconfigs \\
-  --installed tests/stack_shard_fixtures/installed.txt \\
-  --installed-modules-dir tests/stack_shard_fixtures/modules/all \\
-  --shards 4 \\
-  --storage-policy tests/planning_capacity_fixtures/storage-policy.json \\
-  --generated-at 2026-01-01T12:00:10Z --out-dir build/capacity-demo
+eb-stack stack shard \
+  --build-list tests/stack_shard_fixtures/wave1.list \
+  --easyconfigs tests/stack_shard_fixtures/easyconfigs \
+  --installed tests/stack_shard_fixtures/installed.txt \
+  --installed-modules-dir tests/stack_shard_fixtures/modules/all \
+  --shards 4 \
+  --storage-policy tests/planning_capacity_fixtures/storage-policy.json \
+  --generated-at 2026-01-01T12:00:10Z --out-dir /tmp/capacity-demo
 ```
 
 `--storage-policy` and `--inode-quota` are mutually exclusive planning budget
