@@ -1,0 +1,1 @@
+`eb-stack stack buildenv --build-list LIST [--installed MODULES]` names every toolchain a build list builds with and whether its `buildenv/default-<toolchain>` module is installed, listed or missing, with the easyconfig that adds it. `--strict` exits 1 while one is missing, so a pipeline can require a build environment for every toolchain it ships.
