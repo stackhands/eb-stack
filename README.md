@@ -425,6 +425,7 @@ recipe file tools.
   `eb_stack_easystack`, `eb_stack_gap`, `eb_stack_provided`,
   `eb_stack_buildenv`,
   `eb_stack_shadow`, `eb_stack_batch`, `eb_stack_shard`,
+  `eb_stack_capacity`, `eb_stack_footprints`, `eb_stack_admit`,
   `eb_stack_arch`, `eb_stack_files`, `eb_stack_generation`,
   `eb_stack_cuda_cc`, `eb_stack_known_failures`, `eb_stack_oom`,
   `eb_stack_bot_classify`, `eb_stack_sections`, `eb_stack_from_commit`;
@@ -434,7 +435,10 @@ recipe file tools.
 - `eb_campaign_finding_claim`, `eb_campaign_finding_resolve`;
 - `eb_pr_overlap` (`kind` `software-layer` or `easyconfigs`),
   `eb_rebuild_set`, `eb_easyblock_reach`;
-- `eb_repro_summary`.
+- `eb_repro_summary`;
+- `eb_ledger_append`, `eb_ledger_head`, `eb_ledger_tiles`, `eb_ledger_find`,
+  `eb_ledger_show`, `eb_ledger_verify`, `eb_ledger_backfill`,
+  `eb_ledger_anchor`, `eb_ledger_verify_anchors`, `eb_ledger_project`.
 
 `eb_recipe_edit` replaces an exact string and does not write a repeated match
 unless `replace_all` is set. `eb_recipe_check` requires at least one

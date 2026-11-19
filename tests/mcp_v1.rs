@@ -101,6 +101,65 @@ fn documented_mcp_catalog_matches_the_registry() {
     );
 }
 
+/// A tool name is named when it is not the front of a longer name.
+fn names_tool(text: &str, tool: &str) -> bool {
+    text.match_indices(tool).any(|(at, _)| {
+        let before = text[..at]
+            .chars()
+            .next_back()
+            .is_none_or(|c| !c.is_ascii_alphanumeric() && c != '_');
+        let after = text[at + tool.len()..]
+            .chars()
+            .next()
+            .is_none_or(|c| !c.is_ascii_alphanumeric() && c != '_');
+        before && after
+    })
+}
+
+#[test]
+fn readme_and_cli_reference_name_every_mcp_tool() {
+    let response = handle_message(&json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/list",
+        "params": {}
+    }))
+    .expect("tools/list");
+    let names = response["result"]["tools"]
+        .as_array()
+        .expect("tools")
+        .iter()
+        .filter_map(|tool| tool["name"].as_str())
+        .map(str::to_string)
+        .collect::<BTreeSet<_>>();
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    for page in ["README.md", "docs/orgmode/reference/cli.org"] {
+        let text = std::fs::read_to_string(root.join(page)).expect("read page");
+        let missing = names
+            .iter()
+            .filter(|tool| !names_tool(&text, tool))
+            .collect::<Vec<_>>();
+        assert!(
+            missing.is_empty(),
+            "{page} does not name these MCP tools: {missing:?}"
+        );
+    }
+    let readme = std::fs::read_to_string(root.join("README.md")).expect("README");
+    for (at, _) in readme.match_indices("`eb_") {
+        let word = &readme[at + 1..];
+        let end = word
+            .find(|c: char| !(c.is_ascii_lowercase() || c == '_'))
+            .unwrap_or(word.len());
+        if word[end..].starts_with('`') && &word[..end] != "eb_stack" {
+            assert!(
+                names.contains(&word[..end]),
+                "README names {}, which tools/list does not return",
+                &word[..end]
+            );
+        }
+    }
+}
+
 #[test]
 fn mcp_catalog_matches_the_version_one_workflows() {
     let response = handle_message(&json!({

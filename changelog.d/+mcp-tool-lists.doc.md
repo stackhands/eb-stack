@@ -1,0 +1,1 @@
+The README and the command-line reference list every tool `eb-stack mcp` serves. The README left out `eb_stack_capacity`, `eb_stack_footprints`, `eb_stack_admit` and the ten `eb_ledger_*` tools, and the reference left out `eb_stack_buildenv` and four ledger tools. A test now compares both pages with the `tools/list` catalog.
