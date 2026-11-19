@@ -81,30 +81,28 @@ layer. The public files contain reusable package intent and target topology.
 ## Releasing
 
 Version source of truth: `version` in root `Cargo.toml` (currently **0.8.0**).
-Keep these in lockstep on every release:
 
-1. `Cargo.toml` / `pixi.toml` `version`
-2. `pyproject.toml` `version` and `server.json` (both `version` fields)
-3. `CITATION.cff` `version`
-4. `docs/source/conf.py` `release`
-5. `CHANGELOG.md`: `towncrier build --version X.Y.Z` turns the fragments in
-   `changelog.d/` into `## X.Y.Z - YYYY-MM-DD`
-6. `CITATION.cff`: add `date-released` when the version is published
-7. The version a recorded command prints: `README.md`, this file,
-   `docs/orgmode/index.org` (the install section), `docs/orgmode/install.org`,
-   `docs/orgmode/get-started.org`, `docs/orgmode/contributing.org`,
-   `docs/orgmode/changelog.org`, and
-   `docs/orgmode/explanation/sbom-blast-radius.org`, whose `eb-stack --version`
-   block `tests/sbom_page_drift.rs` compares with a fresh run; then
-   `python scripts/gen-llms-txt.py` for `llms-full.txt`
+`cog bump` cuts a release. `cog.toml` runs `tools/release-prepare` before the
+bump commit, which builds `CHANGELOG.md` from `changelog.d/` with towncrier,
+sets the version in every file that declares or states it, and writes
+`llms.txt` and `llms-full.txt` again; the script's header lists the files.
+It refuses when one of them no longer names the old version.
 
-`tests/public_metadata.rs` rejects a `date-released` line, so that field
-stays absent until the test is updated for a published citation.
+1. Branch from `main`: `git switch -c chore/release-X.Y.Z origin/main`.
+2. `cog bump --minor` (or `--patch`, `--major`, `--version X.Y.Z`). It runs
+   the hook, commits `chore(version): X.Y.Z` and creates the tag on that
+   commit. `cog bump --minor --dry-run` prints the version only.
+3. Push the branch, open the pull request, and merge it with a merge commit
+   once its checks pass, so the tagged commit is on `main`.
 
-Then:
+`CITATION.cff` gets no `date-released`: `tests/public_metadata.rs` rejects
+that line, so the field stays absent until the test is updated for a
+published citation.
+
+Then sign the tag cog made and push it:
 
 ```bash
-git tag -a v0.8.0 -m "eb-stack 0.8.0"
+git tag -s -f v0.8.0 -m "eb-stack 0.8.0" 'v0.8.0^{}'
 git push origin v0.8.0
 # .github/workflows/release.yml (cargo-dist) builds the installers
 # and publishes the GitHub Release.

@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+# Prepare the tree for a release: the pre-bump hook of cog.toml.
+#
+# usage: tools/release-prepare NEW_VERSION
+#
+# `cog bump` runs this with the version it is about to tag, then commits what
+# changed and creates the tag. For NEW_VERSION and the version Cargo.toml
+# still names (OLD) it sets:
+#   - CHANGELOG.md: `towncrier build` writes the fragments of changelog.d/
+#     under a heading for NEW_VERSION and removes them;
+#   - the version declarations tests/public_metadata.rs and the publish
+#     workflow compare: Cargo.toml, the eb_stack entry of Cargo.lock,
+#     pixi.toml, pyproject.toml, server.json, CITATION.cff and
+#     docs/source/conf.py. Nothing is compiled, and no dependency moves;
+#   - the pages that state the current release (the list `current_release`
+#     below): every OLD that stands alone as a version becomes NEW;
+#   - llms.txt and llms-full.txt, written again from the Org manual.
+#
+# Not done here: a sentence that should keep naming the old release. None of
+# the listed pages has one; when one gains it, take the page out of the list
+# and edit it in a commit before the bump.
+#
+# Needs: towncrier (or uvx), python3. A refused run can leave edited files
+# behind; `git checkout -- .` puts the tree back.
+set -euo pipefail
+
+new=${1:?usage: tools/release-prepare NEW_VERSION}
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+
+die() { echo "release-prepare: $*" >&2; exit 2; }
+
+# set_in FILE SED_EXPRESSION...: edit FILE, and refuse a FILE the expressions
+# leave unchanged, so a version string that moved fails the bump instead of
+# being skipped.
+set_in() {
+    local file=$1 before
+    shift
+    before=$(sha256sum < "${file}")
+    sed -i -E "$@" "${file}"
+    [ "${before}" != "$(sha256sum < "${file}")" ] || die "${file} does not name ${old} where expected"
+}
+
+[[ ${new} =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "'${new}' is not X.Y.Z"
+old=$(awk '/^\[package\]/{p=1; next} /^\[/{p=0} p && /^version[[:space:]]*=/{gsub(/^[^"]*"|".*$/, ""); print; exit}' Cargo.toml)
+[ -n "${old}" ] || die "Cargo.toml names no [package] version"
+[ "${old}" != "${new}" ] || die "Cargo.toml already names ${new}"
+old_re=${old//./\\.}
+
+if command -v towncrier > /dev/null 2>&1; then
+    towncrier build --version "${new}" --yes
+else
+    uvx towncrier build --version "${new}" --yes
+fi
+
+first_version="0,/^version = /s/^(version = )\"${old_re}\"\$/\1\"${new}\"/"
+set_in Cargo.toml "${first_version}"
+set_in pixi.toml "${first_version}"
+set_in pyproject.toml "${first_version}"
+set_in Cargo.lock "/^name = \"eb_stack\"\$/{n;s/^(version = )\"${old_re}\"\$/\1\"${new}\"/}"
+set_in server.json "s/^( *\"version\": )\"${old_re}\"/\1\"${new}\"/"
+set_in CITATION.cff "s/^(version: )${old_re}\$/\1${new}/"
+set_in docs/source/conf.py "s/^(release = )\"${old_re}\"\$/\1\"${new}\"/"
+
+# Pages whose every mention of OLD means "the current release".
+current_release=(
+    README.md
+    CONTRIBUTING.md
+    docs/orgmode/changelog.org
+    docs/orgmode/contributing.org
+    docs/orgmode/get-started.org
+    docs/orgmode/index.org
+    docs/orgmode/install.org
+    docs/orgmode/explanation/sbom-blast-radius.org
+)
+for page in "${current_release[@]}"; do
+    # OLD alone: not the tail of 10.8.0 and not the head of 0.8.01 or 0.8.0.1.
+    # Applied twice, since two mentions can share the character between them.
+    alone="s/(^|[^0-9.])${old_re}(\$|[^0-9]|\.[^0-9]|\.\$)/\1${new}\2/g"
+    set_in "${page}" -e "${alone}" -e "${alone}"
+done
+
+python3 scripts/gen-llms-txt.py
+
+echo "release-prepare: ${old} -> ${new}"
+git status --short | awk '{print $1}' | sort | uniq -c
