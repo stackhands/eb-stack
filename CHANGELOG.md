@@ -4,6 +4,17 @@ All notable changes to this project are documented here.
 
 <!-- towncrier release notes start -->
 
+## 0.9.0 - 2026-11-19
+
+### Added
+
+- `eb-stack stack buildenv --build-list LIST [--installed MODULES]` names every toolchain a build list builds with and whether its `buildenv/default-<toolchain>` module is installed, listed or missing, with the easyconfig that adds it. `--strict` exits 1 while one is missing, so a pipeline can require a build environment for every toolchain it ships.
+
+### Changed
+
+- A release is cut with `cog bump`: `cog.toml` runs `tools/release-prepare`, which builds the changelog, sets the version in every file that declares or states it, and regenerates `llms.txt` and `llms-full.txt`. It refuses when a listed file no longer names the old version.
+
+
 ## 0.8.0 - 2026-11-18
 
 ### Added
