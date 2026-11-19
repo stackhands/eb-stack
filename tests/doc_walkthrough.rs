@@ -672,6 +672,100 @@ fn the_source_probe_howto_quotes_the_output_it_prints() {
     assert!(quoted.iter().all(|text| !text.contains("127.0.0.1")));
 }
 
+fn shell_blocks(text: &str, fence: bool) -> Vec<String> {
+    if fence {
+        let mut blocks = Vec::new();
+        for lang in ["sh", "bash", "shell"] {
+            blocks.extend(org_blocks(text, &format!("```{lang}\n"), "```"));
+        }
+        return blocks;
+    }
+    let mut blocks = Vec::new();
+    for lang in ["bash", "sh", "shell"] {
+        blocks.extend(org_blocks(
+            text,
+            &format!("#+begin_src {lang}\n"),
+            "#+end_src",
+        ));
+    }
+    blocks
+}
+
+/// A line continuation is one backslash. Two of them end the command at the
+/// first line when a reader pastes the block.
+#[test]
+fn shell_blocks_continue_a_line_with_one_backslash() {
+    let mut pages = vec![(root().join("README.md"), true)];
+    for path in org_files() {
+        pages.push((path, false));
+    }
+    pages.push((root().join("docs/orgmode/index.org"), false));
+    pages.push((root().join("docs/orgmode/install.org"), false));
+    for (path, fence) in pages {
+        let text = std::fs::read_to_string(&path).expect("read");
+        let rel = path.strip_prefix(root()).unwrap_or(&path);
+        for block in shell_blocks(&text, fence) {
+            for line in block.lines() {
+                assert!(
+                    !line.trim_end().ends_with("\\\\"),
+                    "{} has a shell line that ends in two backslashes:\n{line}",
+                    rel.display()
+                );
+            }
+        }
+    }
+}
+
+/// The capacity page names the release that first carried both commands, and
+/// its two commands run in a checkout.
+#[test]
+fn capacity_reference_commands_run_in_a_checkout() {
+    let page = std::fs::read_to_string(root().join("docs/orgmode/reference/planning-capacity.org"))
+        .unwrap();
+    let changelog = std::fs::read_to_string(root().join("CHANGELOG.md")).unwrap();
+    let added = changelog
+        .split("\n## ")
+        .find(|section| section.contains("- `stack capacity` reads"))
+        .and_then(|section| section.split_whitespace().next())
+        .expect("the changelog section that adds stack capacity");
+    assert!(
+        page.contains(&format!("release {added} and")),
+        "the page does not name release {added}, which added stack capacity"
+    );
+    assert!(!page.contains("release binary\ndoes not provide"));
+
+    let tmp = tempfile::tempdir().expect("temp");
+    let scratch = format!("{}/", tmp.path().display());
+    let bin = Path::new(env!("CARGO_BIN_EXE_eb-stack")).parent().unwrap();
+    let path = format!(
+        "{}:{}",
+        bin.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let blocks = shell_blocks(&page, false);
+    assert_eq!(blocks.len(), 2, "capacity and shard commands");
+    let mut stdout = Vec::new();
+    for command in &blocks {
+        let output = Command::new("bash")
+            .current_dir(root())
+            .env("PATH", &path)
+            .args(["-euo", "pipefail", "-c"])
+            .arg(command.replace("/tmp/", &scratch))
+            .output()
+            .expect("spawn bash");
+        assert!(
+            output.status.success(),
+            "{command}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        stdout.push(String::from_utf8_lossy(&output.stdout).into_owned());
+    }
+    let capacity: serde_json::Value = serde_json::from_str(&stdout[0]).expect("capacity JSON");
+    assert_eq!(capacity["queue_fitting_nodes"], 1);
+    assert_eq!(capacity["free_slots"], 1);
+    assert!(tmp.path().join("capacity-demo").is_dir());
+}
+
 fn run_to(args: &[&str], out: &Path) -> std::process::Output {
     Command::new(env!("CARGO_BIN_EXE_eb-stack"))
         .current_dir(root())

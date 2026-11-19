@@ -1,5 +1,5 @@
 {
-  "capacity_sha256": "aaa0baa0e64a1b06d4aeb27960ceae593e16f6c417d6392a501e9367c7dc112b",
+  "capacity_sha256": "945972200e636a80fe4ba2821016b96a4abeef927b4f518253ada11b43233933",
   "capacity_snapshot": "snapshot.json",
   "max_age_seconds": 60,
   "node_local_feature": "local-disk",
