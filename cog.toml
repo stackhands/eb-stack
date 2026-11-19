@@ -8,6 +8,10 @@ disable_changelog = true
 # A release is cut from a branch that becomes a pull request to main.
 branch_whitelist = ["chore/release-*"]
 
+# The hook sets the version in Cargo.toml, Cargo.lock, pixi.toml,
+# pyproject.toml, server.json, CITATION.cff and docs/source/conf.py, and in the
+# pages that state the current release; it refuses when one of them no longer
+# names the old version.
 pre_bump_hooks = [
     "tools/release-prepare {{version}}",
 ]
