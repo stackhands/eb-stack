@@ -6762,6 +6762,7 @@ Package commands take the toolchain as `--toolchain name/version`, the spelling 
 | `stack sections` | Regroup a Jenkins build list under a previous list's headers |
 | `stack from-commit` | Report `from-commit` pins already contained in an EasyBuild release |
 | `stack provided` | Fail when a build list names software a baseline already provides |
+| `stack buildenv` | Name the toolchains of a build list that have no `buildenv` module |
 | `stack shadow` | Report a site-layer recipe that shadows an EESSI base-stack module |
 | `stack arch` | Refuse a plan an architecture cannot build, and flag entries never installed there |
 | `stack files` | Find the patch and source files an easystack's easyconfigs need that no tree has |
@@ -7513,6 +7514,18 @@ route (`site-only.tsv` for `excluded`, `bump.tsv` for `no-recipe`, and
 `version-change.tsv`. The last file has one row per old module version:
 `moved` names the target EESSI version, `site-only` is an `excluded`
 name, and every other missing route is `gone` until it lands.
+
+`stack buildenv` reads each `--build-list` and collects the toolchain
+of every line (`foss-2026.1`, `iimpi-2026.1`, `NVHPC-26.9`); system
+recipes and comments are not counted. A toolchain is `installed` when an
+`--installed` listing (`Name/Version` per line, a trailing `.lua`
+dropped) has `buildenv/default-<toolchain>`, `listed` when a line of
+the lists builds `buildenv-default-<toolchain>.eb`, and `missing`
+otherwise, printed with the easyconfig to add. The last line is
+`<missing> of <total> toolchains have no buildenv module`. `--json`
+prints the rows with the list and line where each toolchain is first
+used. The exit status is 0; `--strict` makes a missing build
+environment exit 1.
 
 `stack provided` reads each `--build-list` (a Jenkins list or one
 easyconfig path per line; `#` comments are skipped) and fails when a
@@ -9484,7 +9497,7 @@ absolute path there.
 
 # Tools
 
-The catalog has 64 tools. `tools/list` returns one tool for each CLI
+The catalog has 65 tools. `tools/list` returns one tool for each CLI
 command in the table, and the recipe and easyblock tools that have no
 command. `mcp` publishes that catalog and has no tool of its own. Each
 command's tool calls the same runner as that command. The `text` field
@@ -9509,6 +9522,7 @@ name in the schema `tools/list` returns. The
 | `stack order` | `eb_stack_order` |
 | `stack gap` | `eb_stack_gap` |
 | `stack provided` | `eb_stack_provided` |
+| `stack buildenv` | `eb_stack_buildenv` |
 | `stack shadow` | `eb_stack_shadow` |
 | `stack batch` | `eb_stack_batch` |
 | `stack shard` | `eb_stack_shard` |
@@ -13722,7 +13736,7 @@ table. `reverse=0` again, for the same reason as the CMakeMake run.
 
 # The same document over MCP
 
-The Model Context Protocol (MCP) catalog has 64 tools. `tools/list` prints
+The Model Context Protocol (MCP) catalog has 65 tools. `tools/list` prints
 their names:
 
 ```bash
@@ -13760,6 +13774,7 @@ eb_stack_easystack
 eb_package_latest
 eb_stack_gap
 eb_stack_provided
+eb_stack_buildenv
 eb_stack_shadow
 eb_stack_batch
 eb_stack_capacity
@@ -13798,7 +13813,7 @@ eb_ledger_verify_anchors
 eb_ledger_project
 ```
 
-That is 64 tools.
+That is 65 tools.
 `eb_stack_sbom` writes the CycloneDX file `stack sbom` writes.
 Its `tools/list` description reads: "Emit CycloneDX from an existing stack lock, reading dependency edges and source checksums from the easyconfigs the lock names. With backport_list, also write the modules whose reach class justifies a backport."
 `eb_stack_sbom` reads the Cbc lock:

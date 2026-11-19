@@ -10,6 +10,7 @@ pub mod batch;
 pub mod bot_result;
 pub mod build_backend;
 pub mod build_order;
+pub mod buildenv;
 pub mod bump_companion;
 pub mod campaign;
 pub mod cargo;

@@ -145,6 +145,7 @@ fn mcp_catalog_matches_the_version_one_workflows() {
         "eb_package_latest",
         "eb_stack_gap",
         "eb_stack_provided",
+        "eb_stack_buildenv",
         "eb_stack_shadow",
         "eb_stack_batch",
         "eb_stack_shard",
@@ -185,7 +186,7 @@ fn mcp_catalog_matches_the_version_one_workflows() {
     ] {
         assert!(names.contains(&expected), "missing {expected}: {names:?}");
     }
-    assert_eq!(names.len(), 64, "unexpected MCP tools: {names:?}");
+    assert_eq!(names.len(), 65, "unexpected MCP tools: {names:?}");
 
     let inspect = response["result"]["tools"]
         .as_array()
@@ -2580,6 +2581,7 @@ fn mcp_schemas_cover_cli_flags() {
         ("eb_stack_from_commit", "stack from-commit"),
         ("eb_stack_gap", "stack gap"),
         ("eb_stack_provided", "stack provided"),
+        ("eb_stack_buildenv", "stack buildenv"),
         ("eb_stack_shadow", "stack shadow"),
         ("eb_stack_batch", "stack batch"),
         ("eb_stack_shard", "stack shard"),
@@ -3857,6 +3859,7 @@ fn every_cli_subcommand_has_an_mcp_tool() {
         ("eb_stack_from_commit", &["stack", "from-commit"]),
         ("eb_stack_gap", &["stack", "gap"]),
         ("eb_stack_provided", &["stack", "provided"]),
+        ("eb_stack_buildenv", &["stack", "buildenv"]),
         ("eb_stack_shadow", &["stack", "shadow"]),
         ("eb_stack_batch", &["stack", "batch"]),
         ("eb_stack_shard", &["stack", "shard"]),

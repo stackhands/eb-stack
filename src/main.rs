@@ -1669,6 +1669,34 @@ enum StackCommand {
         #[arg(long)]
         out_dir: PathBuf,
     },
+    /// Name the toolchains of a build list that have no `buildenv` module.
+    ///
+    /// A program compiled by hand links correctly only through the build
+    /// environment of its toolchain. Every toolchain a line builds with is
+    /// reported as installed (an `--installed` listing has
+    /// `buildenv/default-<toolchain>`), listed (a line of the lists builds
+    /// it) or missing, with the easyconfig that would add it. System recipes
+    /// and comment lines are not counted. Exits 0; with `--strict`, exits 1
+    /// while a toolchain is missing its build environment.
+    #[command(
+        after_long_help = "Examples:\n  eb-stack stack buildenv --build-list site.list --installed modules.txt\n  eb-stack stack buildenv --build-list site.list --strict --json"
+    )]
+    Buildenv {
+        /// Build list, one easyconfig per line, with optional `eb` flags.
+        /// Repeatable.
+        #[arg(long = "build-list", required = true)]
+        build_lists: Vec<PathBuf>,
+        /// Installed modules, `Name/Version` per line; a trailing `.lua`
+        /// is dropped, so a directory listing works. Repeatable.
+        #[arg(long = "installed")]
+        installed: Vec<PathBuf>,
+        /// Print the report as JSON.
+        #[arg(long)]
+        json: bool,
+        /// Exit 1 while a toolchain has no build environment.
+        #[arg(long)]
+        strict: bool,
+    },
     /// Fail when a build list names software a baseline already provides.
     ///
     /// The comparison is the package name, ignoring version and toolchain,
@@ -3708,6 +3736,24 @@ fn run_stack(command: StackCommand) -> Result<()> {
                 licensed_file,
                 json,
                 format: format.to_lib(),
+                strict,
+            })?;
+            print!("{}", report.stdout);
+            if let Some(message) = report.failure() {
+                bail!(message);
+            }
+            Ok(())
+        }
+        StackCommand::Buildenv {
+            build_lists,
+            installed,
+            json,
+            strict,
+        } => {
+            let report = eb_stack::buildenv::run_buildenv(&eb_stack::buildenv::BuildenvRequest {
+                build_lists,
+                installed,
+                json,
                 strict,
             })?;
             print!("{}", report.stdout);

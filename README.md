@@ -423,6 +423,7 @@ recipe file tools.
   (easyblocks; `eb_build_test` only with `EB_STACK_ALLOW_BUILD=1`);
 - `eb_stack_solve`, `eb_stack_sbom`, `eb_stack_order`,
   `eb_stack_easystack`, `eb_stack_gap`, `eb_stack_provided`,
+  `eb_stack_buildenv`,
   `eb_stack_shadow`, `eb_stack_batch`, `eb_stack_shard`,
   `eb_stack_arch`, `eb_stack_files`, `eb_stack_generation`,
   `eb_stack_cuda_cc`, `eb_stack_known_failures`, `eb_stack_oom`,
