@@ -912,16 +912,16 @@ fn derive_nvidia_family_hierarchy(
     // deprecated spelling, still what older generations in the wild carry. Accept
     // either, preferring the current one, or a correctly-built new generation
     // reads as an unknown hierarchy.
-    let nvhpc_ver = ["nvidia-compilers", "NVHPC"]
-        .iter()
-        .find_map(|compiler| {
-            def.dependencies
-                .iter()
-                .chain(def.builddependencies.iter())
-                .find(|d| d.name == *compiler)
-                .and_then(|d| exact_pin_version(&d.version_req))
-        })?
-        .to_string();
+    let nvhpc_ver = ["nvidia-compilers", "NVHPC"].iter().find_map(|compiler| {
+        def.dependencies
+            .iter()
+            .chain(def.builddependencies.iter())
+            .find(|d| d.name == *compiler)
+            .and_then(|d| {
+                exact_pin_version(&d.version_req)
+                    .map(|v| format!("{v}{}", d.versionsuffix.as_deref().unwrap_or_default()))
+            })
+    })?;
 
     let mut members = vec![Toolchain {
         name: "system".into(),
@@ -2604,5 +2604,67 @@ mod tests {
             hierarchy_member_rank(&h, &gcc).unwrap() > hierarchy_member_rank(&h, &sys_sys).unwrap()
         );
         assert!(hierarchy_member_rank(&h, &gcc14).is_none());
+    }
+
+    #[test]
+    fn nvhpc_cuda_hierarchy_preserves_nvidia_compilers_cuda_suffix() {
+        let nvhpc = crate::resolve_easyconfig_str(
+            "name = 'NVHPC'\n\
+             version = '25.3'\n\
+             versionsuffix = '-CUDA-%(cudaver)s'\n\
+             toolchain = SYSTEM\n\
+             dependencies = [('CUDA', '12.8.0'), ('nvidia-compilers', version, versionsuffix)]\n",
+        )
+        .expect("NVHPC")
+        .to_candidate();
+        let nvc = crate::resolve_easyconfig_str(
+            "name = 'nvidia-compilers'\n\
+             version = '25.3'\n\
+             versionsuffix = '-CUDA-%(cudaver)s'\n\
+             toolchain = SYSTEM\n\
+             dependencies = [('CUDA', '12.8.0'), ('GCCcore', '14.2.0')]\n",
+        )
+        .expect("nvidia-compilers")
+        .to_candidate();
+        let libxc = crate::resolve_easyconfig_str(
+            "name = 'libxc'\n\
+             version = '7.0.0'\n\
+             toolchain = {'name': 'nvidia-compilers', 'version': '25.3-CUDA-12.8.0'}\n",
+        )
+        .expect("libxc")
+        .to_candidate();
+        let qe = crate::resolve_easyconfig_str(
+            "name = 'QuantumESPRESSO'\n\
+             version = '7.5'\n\
+             toolchain = {'name': 'NVHPC', 'version': '25.3-CUDA-12.8.0'}\n\
+             dependencies = [('libxc', '7.0.0')]\n",
+        )
+        .expect("QuantumESPRESSO");
+        let qe_cand = qe.to_candidate();
+        let cuda = cand("CUDA", "12.8.0", "system", "", None);
+        let gcccore = cand("GCCcore", "14.2.0", "system", "", None);
+        let universe = vec![nvhpc, nvc, libxc, qe_cand, cuda, gcccore];
+
+        let h = hierarchy_for_with_tree(&qe.toolchain, None, &universe).expect("hierarchy");
+        let labels: Vec<String> = h.members.iter().map(Toolchain::label).collect();
+        assert!(
+            labels.iter().any(|l| l == "nvidia-compilers-25.3-CUDA-12.8.0"),
+            "NVHPC-25.3-CUDA-12.8.0 hierarchy must carry nvidia-compilers-25.3-CUDA-12.8.0, got {labels:?}"
+        );
+
+        let dep_check = crate::check_recipe_deps(&qe, &universe);
+        assert!(
+            dep_check.ok(),
+            "QuantumESPRESSO -> libxc must resolve via nvidia-compilers-25.3-CUDA-12.8.0: {:?}",
+            dep_check.missing
+        );
+
+        let order = crate::build_order::build_order(
+            &universe,
+            &["QuantumESPRESSO".into()],
+            crate::build_order::Choice::Newest,
+        )
+        .expect("build_order must include libxc");
+        assert!(order.iter().any(|c| c.name == "libxc"));
     }
 }
