@@ -547,7 +547,16 @@ fn within_generation<'a>(
         return admissible;
     };
     if best == usize::MAX && dep.toolchain.is_none() {
-        return Vec::new();
+        let spells_module = dep.version_req.strip_prefix("==").is_some_and(|pinned| {
+            let wanted = format!("{pinned}{}", dep.versionsuffix.as_deref().unwrap_or(""));
+            admissible.iter().any(|c| {
+                let mv = module_version(c);
+                mv == wanted && mv != c.install_version_stem()
+            })
+        });
+        if !spells_module {
+            return Vec::new();
+        }
     }
     admissible.retain(|c| distance(c, recipe, all) == best);
     admissible
