@@ -296,6 +296,10 @@ fn strip_comments(src: &str) -> String {
                         i += 3;
                         continue;
                     }
+                    if c == b'\\' && (in_s || in_d) {
+                        i += 2;
+                        continue;
+                    }
                     if c == b'\'' && !in_d {
                         in_s = !in_s;
                     } else if c == b'"' && !in_s {
@@ -1029,7 +1033,7 @@ impl<'a> Parser<'a> {
             // joining across a newline there would swallow the next statement.
             let join_strings = matches!(left, Value::Str(_))
                 && (self.depth > 0 || !crossed_line)
-                && (matches!(self.peek(), Some(b'\'' | b'"')) || self.starts_fstring());
+                && (matches!(self.peek(), Some(b'\'' | b'"')) || self.starts_prefixed_string());
             if join_strings {
                 let right = self.parse_postfix()?;
                 left = match (left, right) {
@@ -1116,7 +1120,9 @@ impl<'a> Parser<'a> {
             return Err(self.err("expected expression, got EOF"));
         };
         match c {
-            b'f' | b'F' if self.starts_fstring() => self.parse_fstring(),
+            b'f' | b'F' | b'r' | b'R' if self.starts_prefixed_string() => {
+                self.parse_prefixed_string()
+            }
             b'\'' | b'"' => self.parse_string(),
             b'[' => self.parse_list(),
             b'(' => self.parse_tuple_or_group(),
@@ -1128,6 +1134,10 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_string(&mut self) -> Result<Value, String> {
+        self.parse_string_with_raw(false)
+    }
+
+    fn parse_string_with_raw(&mut self, raw: bool) -> Result<Value, String> {
         self.skip_ws();
         let quote = self.bump().ok_or_else(|| self.err("expected string"))?;
         // Triple-quoted
@@ -1147,11 +1157,31 @@ impl<'a> Parser<'a> {
                         .map_err(|e| self.err(e.to_string()))?
                         .to_string();
                     self.pos += 3;
-                    return Ok(Value::Str(unescape_python_str(&s)));
+                    return Ok(Value::Str(if raw { s } else { unescape_python_str(&s) }));
                 }
-                self.pos += 1;
+                if raw && self.src[self.pos] == b'\\' && self.pos + 1 < self.src.len() {
+                    self.pos += 2;
+                } else {
+                    self.pos += 1;
+                }
             }
             return Err(self.err("unterminated triple-quoted string"));
+        }
+        if raw {
+            let start = self.pos;
+            while let Some(c) = self.bump() {
+                if c == quote {
+                    let s = std::str::from_utf8(&self.src[start..self.pos - 1])
+                        .map_err(|e| self.err(e.to_string()))?
+                        .to_string();
+                    return Ok(Value::Str(s));
+                }
+                if c == b'\\' {
+                    self.bump()
+                        .ok_or_else(|| self.err("unterminated string escape"))?;
+                }
+            }
+            return Err(self.err("unterminated string"));
         }
         let mut out = String::new();
         while let Some(c) = self.bump() {
@@ -1197,30 +1227,51 @@ impl<'a> Parser<'a> {
         sub.parse_expr()
     }
 
-    /// Whether what follows is an f-string rather than a name beginning with f.
-    fn starts_fstring(&self) -> bool {
-        let mut at = self.pos;
-        // Accept fr'' and rf'' as well, which a recipe writes for a path.
-        while matches!(self.src.get(at), Some(b'f' | b'F' | b'r' | b'R')) && at < self.pos + 2 {
-            at += 1;
+    /// Whether what follows is a prefixed (`r`, `f`, `fr`, `rf`) string literal
+    /// rather than an identifier beginning with `r` or `f`.
+    fn starts_prefixed_string(&self) -> bool {
+        let Some(first) = self.src.get(self.pos) else {
+            return false;
+        };
+        let is_f = |b: u8| matches!(b, b'f' | b'F');
+        let is_r = |b: u8| matches!(b, b'r' | b'R');
+        if !(is_f(*first) || is_r(*first)) {
+            return false;
         }
-        at > self.pos && matches!(self.src.get(at), Some(b'\'' | b'"'))
+        if matches!(self.src.get(self.pos + 1), Some(b'\'' | b'"')) {
+            return true;
+        }
+        let Some(second) = self.src.get(self.pos + 1) else {
+            return false;
+        };
+        let valid_pair = (is_f(*first) && is_r(*second)) || (is_r(*first) && is_f(*second));
+        valid_pair && matches!(self.src.get(self.pos + 2), Some(b'\'' | b'"'))
     }
 
-    /// An f-string, with `{name}` filled from what the file has defined.
+    /// Parse `r'...'`, `f'...'`, `fr'...'`, or `rf'...'` string literals.
     ///
-    /// 221 recipes use one and 47 put it in a field that decides identity or
-    /// dependencies, so a parser that stops at the `f` reads those as having
-    /// no version at all. Only a bare name is substituted: a format spec or a
-    /// conversion is an error rather than a guess, because a silently
-    /// mis-rendered version is worse than a recipe that is skipped.
-    fn parse_fstring(&mut self) -> Result<Value, String> {
-        while matches!(self.peek(), Some(b'f' | b'F' | b'r' | b'R')) {
-            self.pos += 1;
+    /// Only a bare name or expression inside `{...}` is substituted in f-strings;
+    /// raw prefixes preserve backslashes verbatim.
+    fn parse_prefixed_string(&mut self) -> Result<Value, String> {
+        let mut is_f = false;
+        let mut is_r = false;
+        while let Some(b) = self.peek() {
+            if matches!(b, b'f' | b'F') {
+                is_f = true;
+                self.pos += 1;
+            } else if matches!(b, b'r' | b'R') {
+                is_r = true;
+                self.pos += 1;
+            } else {
+                break;
+            }
         }
-        let Value::Str(raw) = self.parse_string()? else {
-            return Err(self.err("f-string body is not a string"));
+        let Value::Str(raw) = self.parse_string_with_raw(is_r)? else {
+            return Err(self.err("prefixed string body is not a string"));
         };
+        if !is_f {
+            return Ok(Value::Str(raw));
+        }
         let mut out = String::new();
         let mut rest = raw.as_str();
         while let Some(at) = rest.find(['{', '}']) {
