@@ -460,6 +460,13 @@ pub(crate) fn satisfies(candidate: &Candidate, dep: &DepReq) -> bool {
             return true;
         }
     }
+    let stem = candidate.install_version_stem();
+    let got_vs = candidate.versionsuffix.as_deref().unwrap_or("");
+    let want_vs = dep.versionsuffix.as_deref().unwrap_or("");
+    let combined_match = dep.versionsuffix.is_none()
+        && !got_vs.is_empty()
+        && crate::version::requirement_is_exact(&dep.version_req)
+        && matches_req(&format!("{stem}{got_vs}"), &dep.version_req);
     if !dep.version_req.is_empty() {
         // A dependency may name the install stem (versionprefix + version), or
         // that stem with the versionsuffix run onto it, because that is what
@@ -469,9 +476,7 @@ pub(crate) fn satisfies(candidate: &Candidate, dep: &DepReq) -> bool {
         // versionprefix mpp- and bare version 1.0. Bare `candidate.version`
         // stays for SBOM/metadata and is not what dependency matching uses
         // when a prefix is present.
-        let stem = candidate.install_version_stem();
-        let with_suffix = format!("{stem}{}", candidate.versionsuffix.as_deref().unwrap_or(""));
-        if !matches_req(&stem, &dep.version_req) && !matches_req(&with_suffix, &dep.version_req) {
+        if !matches_req(&stem, &dep.version_req) && !combined_match {
             return false;
         }
     }
@@ -480,10 +485,7 @@ pub(crate) fn satisfies(candidate: &Candidate, dep: &DepReq) -> bool {
             return false;
         }
     }
-    match dep.versionsuffix.as_deref() {
-        Some(suffix) => candidate.versionsuffix.as_deref().unwrap_or("") == suffix,
-        None => true,
-    }
+    got_vs == want_vs || combined_match
 }
 
 /// How far a candidate sits from the recipe that needs it.
@@ -2404,5 +2406,70 @@ mod tests {
             toolchain: Some(tc("system", "system")),
         };
         assert!(satisfies(&system_suffixed, &system_dep));
+    }
+
+    #[test]
+    fn satisfies_rejects_suffixed_candidate_for_bare_dep_unless_combined() {
+        let suitesparse_foss_metis = Candidate {
+            name: "SuiteSparse".into(),
+            version: "7.11.0".into(),
+            toolchain: tc("foss", "2025b"),
+            versionsuffix: Some("-METIS-5.1.0".into()),
+            versionprefix: None,
+            easyconfig_path: String::new(),
+            dependencies: vec![],
+            builddependencies: vec![],
+            exts_list: vec![],
+            easyblock: None,
+            moduleclass: None,
+        };
+        let suitesparse_gfbf = Candidate {
+            name: "SuiteSparse".into(),
+            version: "7.11.0".into(),
+            toolchain: tc("gfbf", "2025b"),
+            versionsuffix: None,
+            versionprefix: None,
+            easyconfig_path: String::new(),
+            dependencies: vec![],
+            builddependencies: vec![],
+            exts_list: vec![],
+            easyblock: None,
+            moduleclass: None,
+        };
+        let bare_dep = DepReq {
+            name: "SuiteSparse".into(),
+            version_req: "==7.11.0".into(),
+            versionsuffix: None,
+            toolchain: None,
+        };
+        assert!(
+            !satisfies(&suitesparse_foss_metis, &bare_dep),
+            "2-tuple ('SuiteSparse', '7.11.0') must not match -METIS-5.1.0 suffixed build"
+        );
+        assert!(satisfies(&suitesparse_gfbf, &bare_dep));
+
+        let mcr_dot = Candidate {
+            name: "MCR".into(),
+            version: "R2019b".into(),
+            toolchain: tc("system", "system"),
+            versionsuffix: Some(".8".into()),
+            versionprefix: None,
+            easyconfig_path: String::new(),
+            dependencies: vec![],
+            builddependencies: vec![],
+            exts_list: vec![],
+            easyblock: None,
+            moduleclass: None,
+        };
+        let mcr_combined_dep = DepReq {
+            name: "MCR".into(),
+            version_req: "==R2019b.8".into(),
+            versionsuffix: None,
+            toolchain: None,
+        };
+        assert!(
+            satisfies(&mcr_dot, &mcr_combined_dep),
+            "exact combined stem+suffix pin such as ('MCR', 'R2019b.8') must still match"
+        );
     }
 }
