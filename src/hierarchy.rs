@@ -979,7 +979,6 @@ fn derive_nvidia_family_hierarchy(
 /// `nvidia-compilers-25.3` still answers for `25.3-CUDA-12.8.0` (both pin the
 /// same GCCcore in practice).
 fn nvidia_compilers_gcccore(nvhpc_ver: &str, cands: &[Candidate]) -> Option<String> {
-    let is_nvc = |c: &Candidate| c.name == "nvidia-compilers";
     let joined = |c: &Candidate| {
         format!(
             "{}{}",
@@ -987,21 +986,24 @@ fn nvidia_compilers_gcccore(nvhpc_ver: &str, cands: &[Candidate]) -> Option<Stri
             c.versionsuffix.as_deref().unwrap_or_default()
         )
     };
-    let chosen = cands
-        .iter()
-        .find(|c| is_nvc(c) && joined(c) == nvhpc_ver)
-        .or_else(|| {
-            cands
-                .iter()
-                .find(|c| is_nvc(c) && version_prefix_of(&c.version, nvhpc_ver))
-        })?;
-    chosen
-        .dependencies
-        .iter()
-        .chain(chosen.builddependencies.iter())
-        .find(|d| d.name == "GCCcore")
-        .and_then(|d| exact_pin_version(&d.version_req))
-        .map(|s| s.to_string())
+    ["nvidia-compilers", "NVHPC"].iter().find_map(|pkg| {
+        let is_pkg = |c: &Candidate| c.name == *pkg;
+        let chosen = cands
+            .iter()
+            .find(|c| is_pkg(c) && joined(c) == nvhpc_ver)
+            .or_else(|| {
+                cands
+                    .iter()
+                    .find(|c| is_pkg(c) && version_prefix_of(&c.version, nvhpc_ver))
+            })?;
+        chosen
+            .dependencies
+            .iter()
+            .chain(chosen.builddependencies.iter())
+            .find(|d| d.name == "GCCcore")
+            .and_then(|d| exact_pin_version(&d.version_req))
+            .map(str::to_string)
+    })
 }
 
 /// Derive the hierarchy for a compiler-only toolchain (intel-compilers,
@@ -2666,5 +2668,60 @@ mod tests {
         )
         .expect("build_order must include libxc");
         assert!(order.iter().any(|c| c.name == "libxc"));
+    }
+
+    #[test]
+    fn nvompi_hierarchy_resolves_gcccore_from_nvhpc_recipe() {
+        let nvhpc = crate::resolve_easyconfig_str(
+            "name = 'NVHPC'\n\
+             version = '22.7'\n\
+             versionsuffix = '-CUDA-%(cudaver)s'\n\
+             toolchain = SYSTEM\n\
+             dependencies = [('GCCcore', '11.3.0'), ('CUDA', '11.7.0', '', SYSTEM)]\n",
+        )
+        .expect("NVHPC")
+        .to_candidate();
+        let nvompi = crate::resolve_easyconfig_str(
+            "easyblock = 'Toolchain'\n\
+             name = 'nvompi'\n\
+             version = '2022.07'\n\
+             toolchain = SYSTEM\n\
+             dependencies = [('NVHPC', '22.7-CUDA-11.7.0'), ('OpenMPI', '4.1.4', '', ('NVHPC', '22.7-CUDA-11.7.0'))]\n",
+        )
+        .expect("nvompi")
+        .to_candidate();
+        let hdf5 = crate::resolve_easyconfig_str(
+            "name = 'HDF5'\n\
+             version = '1.12.2'\n\
+             toolchain = {'name': 'nvompi', 'version': '2022.07'}\n\
+             dependencies = [('zlib', '1.2.12')]\n",
+        )
+        .expect("HDF5");
+        let zlib = cand("zlib", "1.2.12", "GCCcore", "11.3.0", None);
+        let gcccore = cand("GCCcore", "11.3.0", "system", "", None);
+        let openmpi = cand("OpenMPI", "4.1.4", "NVHPC", "22.7-CUDA-11.7.0", None);
+        let cuda = cand("CUDA", "11.7.0", "system", "", None);
+        let universe = vec![
+            nvhpc,
+            nvompi,
+            hdf5.to_candidate(),
+            zlib,
+            gcccore,
+            openmpi,
+            cuda,
+        ];
+
+        let h = hierarchy_for_with_tree(&hdf5.toolchain, None, &universe).expect("hierarchy");
+        let labels: Vec<String> = h.members.iter().map(Toolchain::label).collect();
+        assert!(
+            labels.iter().any(|l| l == "GCCcore-11.3.0"),
+            "nvompi-2022.07 hierarchy must include GCCcore-11.3.0, got {labels:?}"
+        );
+        let dep_check = crate::check_recipe_deps(&hdf5, &universe);
+        assert!(
+            dep_check.ok(),
+            "HDF5 -> zlib must resolve via GCCcore-11.3.0: {:?}",
+            dep_check.missing
+        );
     }
 }
