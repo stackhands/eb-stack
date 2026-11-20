@@ -205,7 +205,12 @@ pub(crate) fn dependency_candidate_scope(
         if !crate::hierarchy::is_system_toolchain(&recipe.toolchain) {
             for candidate in candidates.iter().filter(|candidate| {
                 candidate.name == recipe.toolchain.name
-                    && candidate.version == recipe.toolchain.version
+                    && (candidate.version == recipe.toolchain.version
+                        || format!(
+                            "{}{}",
+                            candidate.version,
+                            candidate.versionsuffix.as_deref().unwrap_or_default()
+                        ) == recipe.toolchain.version)
             }) {
                 if known.insert(candidate.easyconfig_path.clone()) {
                     admitted.push(candidate.clone());

@@ -1,0 +1,1 @@
+Include `versionsuffix` when reading the `nvidia-compilers` or `NVHPC` dependency pin inside `derive_nvidia_family_hierarchy`, so `NVHPC-25.3-CUDA-12.8.0` hierarchies emit `nvidia-compilers-25.3-CUDA-12.8.0` and resolve `libxc` and `GSL` dependencies built against it.

@@ -296,6 +296,10 @@ fn strip_comments(src: &str) -> String {
                         i += 3;
                         continue;
                     }
+                    if c == b'\\' && (in_s || in_d) {
+                        i += 2;
+                        continue;
+                    }
                     if c == b'\'' && !in_d {
                         in_s = !in_s;
                     } else if c == b'"' && !in_s {
@@ -582,6 +586,10 @@ impl<'a> Parser<'a> {
         }
         let arg = self.parse_expr()?;
         self.skip_ws();
+        if self.peek() == Some(b',') {
+            self.pos += 1;
+            self.skip_ws();
+        }
         if self.bump() != Some(b')') {
             return Err(self.err(format!("expected ')' after {name}.append")));
         }
@@ -818,7 +826,34 @@ impl<'a> Parser<'a> {
         if self.bump() != Some(b'=') {
             return Err(self.err("expected '=' in an unpacking assignment"));
         }
-        let value = self.parse_expr()?;
+        let first_val = self.parse_expr()?;
+        let before_ws = self.pos;
+        self.skip_ws();
+        let crossed_line = self.src[before_ws..self.pos].contains(&b'\n');
+        let value = if !crossed_line && self.peek() == Some(b',') {
+            let mut items = vec![first_val];
+            while self.peek() == Some(b',') {
+                self.pos += 1;
+                let before_next = self.pos;
+                self.skip_ws();
+                let next_crossed = self.src[before_next..self.pos].contains(&b'\n');
+                if next_crossed || matches!(self.peek(), None | Some(b';')) {
+                    self.pos = before_next;
+                    break;
+                }
+                items.push(self.parse_expr()?);
+                let after_ws = self.pos;
+                self.skip_ws();
+                if self.src[after_ws..self.pos].contains(&b'\n') {
+                    self.pos = after_ws;
+                    break;
+                }
+            }
+            Value::Tuple(items)
+        } else {
+            self.pos = before_ws;
+            first_val
+        };
         let items = match value {
             Value::List(items) | Value::Tuple(items) => items,
             other => {
@@ -899,6 +934,15 @@ impl<'a> Parser<'a> {
             if self.peek() == Some(b')') {
                 self.pos += 1;
                 break;
+            }
+            if positional.is_empty() && keywords.is_empty() {
+                let elem_at = self.pos;
+                if let Some(for_at) = self.comprehension_for(elem_at) {
+                    let gen = self.eval_comprehension(elem_at, for_at, b')')?;
+                    positional.push(gen);
+                    return call_method(&receiver, &name, &positional, &keywords)
+                        .map_err(|e| self.err(e));
+                }
             }
             if let Some((key, value)) = self.parse_keyword_arg()? {
                 saw_keyword = true;
@@ -1029,7 +1073,7 @@ impl<'a> Parser<'a> {
             // joining across a newline there would swallow the next statement.
             let join_strings = matches!(left, Value::Str(_))
                 && (self.depth > 0 || !crossed_line)
-                && (matches!(self.peek(), Some(b'\'' | b'"')) || self.starts_fstring());
+                && (matches!(self.peek(), Some(b'\'' | b'"')) || self.starts_prefixed_string());
             if join_strings {
                 let right = self.parse_postfix()?;
                 left = match (left, right) {
@@ -1116,7 +1160,9 @@ impl<'a> Parser<'a> {
             return Err(self.err("expected expression, got EOF"));
         };
         match c {
-            b'f' | b'F' if self.starts_fstring() => self.parse_fstring(),
+            b'f' | b'F' | b'r' | b'R' if self.starts_prefixed_string() => {
+                self.parse_prefixed_string()
+            }
             b'\'' | b'"' => self.parse_string(),
             b'[' => self.parse_list(),
             b'(' => self.parse_tuple_or_group(),
@@ -1128,6 +1174,10 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_string(&mut self) -> Result<Value, String> {
+        self.parse_string_with_raw(false)
+    }
+
+    fn parse_string_with_raw(&mut self, raw: bool) -> Result<Value, String> {
         self.skip_ws();
         let quote = self.bump().ok_or_else(|| self.err("expected string"))?;
         // Triple-quoted
@@ -1147,11 +1197,31 @@ impl<'a> Parser<'a> {
                         .map_err(|e| self.err(e.to_string()))?
                         .to_string();
                     self.pos += 3;
-                    return Ok(Value::Str(unescape_python_str(&s)));
+                    return Ok(Value::Str(if raw { s } else { unescape_python_str(&s) }));
                 }
-                self.pos += 1;
+                if raw && self.src[self.pos] == b'\\' && self.pos + 1 < self.src.len() {
+                    self.pos += 2;
+                } else {
+                    self.pos += 1;
+                }
             }
             return Err(self.err("unterminated triple-quoted string"));
+        }
+        if raw {
+            let start = self.pos;
+            while let Some(c) = self.bump() {
+                if c == quote {
+                    let s = std::str::from_utf8(&self.src[start..self.pos - 1])
+                        .map_err(|e| self.err(e.to_string()))?
+                        .to_string();
+                    return Ok(Value::Str(s));
+                }
+                if c == b'\\' {
+                    self.bump()
+                        .ok_or_else(|| self.err("unterminated string escape"))?;
+                }
+            }
+            return Err(self.err("unterminated string"));
         }
         let mut out = String::new();
         while let Some(c) = self.bump() {
@@ -1197,30 +1267,51 @@ impl<'a> Parser<'a> {
         sub.parse_expr()
     }
 
-    /// Whether what follows is an f-string rather than a name beginning with f.
-    fn starts_fstring(&self) -> bool {
-        let mut at = self.pos;
-        // Accept fr'' and rf'' as well, which a recipe writes for a path.
-        while matches!(self.src.get(at), Some(b'f' | b'F' | b'r' | b'R')) && at < self.pos + 2 {
-            at += 1;
+    /// Whether what follows is a prefixed (`r`, `f`, `fr`, `rf`) string literal
+    /// rather than an identifier beginning with `r` or `f`.
+    fn starts_prefixed_string(&self) -> bool {
+        let Some(first) = self.src.get(self.pos) else {
+            return false;
+        };
+        let is_f = |b: u8| matches!(b, b'f' | b'F');
+        let is_r = |b: u8| matches!(b, b'r' | b'R');
+        if !(is_f(*first) || is_r(*first)) {
+            return false;
         }
-        at > self.pos && matches!(self.src.get(at), Some(b'\'' | b'"'))
+        if matches!(self.src.get(self.pos + 1), Some(b'\'' | b'"')) {
+            return true;
+        }
+        let Some(second) = self.src.get(self.pos + 1) else {
+            return false;
+        };
+        let valid_pair = (is_f(*first) && is_r(*second)) || (is_r(*first) && is_f(*second));
+        valid_pair && matches!(self.src.get(self.pos + 2), Some(b'\'' | b'"'))
     }
 
-    /// An f-string, with `{name}` filled from what the file has defined.
+    /// Parse `r'...'`, `f'...'`, `fr'...'`, or `rf'...'` string literals.
     ///
-    /// 221 recipes use one and 47 put it in a field that decides identity or
-    /// dependencies, so a parser that stops at the `f` reads those as having
-    /// no version at all. Only a bare name is substituted: a format spec or a
-    /// conversion is an error rather than a guess, because a silently
-    /// mis-rendered version is worse than a recipe that is skipped.
-    fn parse_fstring(&mut self) -> Result<Value, String> {
-        while matches!(self.peek(), Some(b'f' | b'F' | b'r' | b'R')) {
-            self.pos += 1;
+    /// Only a bare name or expression inside `{...}` is substituted in f-strings;
+    /// raw prefixes preserve backslashes verbatim.
+    fn parse_prefixed_string(&mut self) -> Result<Value, String> {
+        let mut is_f = false;
+        let mut is_r = false;
+        while let Some(b) = self.peek() {
+            if matches!(b, b'f' | b'F') {
+                is_f = true;
+                self.pos += 1;
+            } else if matches!(b, b'r' | b'R') {
+                is_r = true;
+                self.pos += 1;
+            } else {
+                break;
+            }
         }
-        let Value::Str(raw) = self.parse_string()? else {
-            return Err(self.err("f-string body is not a string"));
+        let Value::Str(raw) = self.parse_string_with_raw(is_r)? else {
+            return Err(self.err("prefixed string body is not a string"));
         };
+        if !is_f {
+            return Ok(Value::Str(raw));
+        }
         let mut out = String::new();
         let mut rest = raw.as_str();
         while let Some(at) = rest.find(['{', '}']) {
@@ -1430,9 +1521,15 @@ impl<'a> Parser<'a> {
         prev_ok && next_ok
     }
 
-    /// `[expr for name in seq]`. The element is parsed once per item, after
-    /// the name is bound, because it refers to that name.
-    fn eval_list_comprehension(&mut self, elem_at: usize, for_at: usize) -> Result<Value, String> {
+    /// `[expr for name in seq]` or `(expr for name in seq)`. The element is
+    /// parsed once per item, after the name is bound, because it refers to that
+    /// name.
+    fn eval_comprehension(
+        &mut self,
+        elem_at: usize,
+        for_at: usize,
+        closer: u8,
+    ) -> Result<Value, String> {
         let depth = self.depth;
         self.pos = for_at;
         let kw = self.parse_ident()?;
@@ -1450,8 +1547,11 @@ impl<'a> Parser<'a> {
         if self.keyword_at(self.pos, "if") {
             return Err(self.err("a comprehension filter is not read"));
         }
-        if self.bump() != Some(b']') {
-            return Err(self.err("a comprehension is not closed by ']'"));
+        if self.bump() != Some(closer) {
+            return Err(self.err(format!(
+                "a comprehension is not closed by '{}'",
+                closer as char
+            )));
         }
         let end = self.pos;
         let items = match iterable {
@@ -1491,7 +1591,7 @@ impl<'a> Parser<'a> {
         if self.peek() != Some(b']') {
             let elem_at = self.pos;
             if let Some(for_at) = self.comprehension_for(elem_at) {
-                return self.eval_list_comprehension(elem_at, for_at);
+                return self.eval_comprehension(elem_at, for_at, b']');
             }
         }
         let mut items = Vec::new();
@@ -1534,6 +1634,10 @@ impl<'a> Parser<'a> {
             self.pos += 1;
             self.depth -= 1;
             return Ok(Value::Tuple(vec![]));
+        }
+        let elem_at = self.pos;
+        if let Some(for_at) = self.comprehension_for(elem_at) {
+            return self.eval_comprehension(elem_at, for_at, b')');
         }
         let first = self.parse_expr()?;
         self.skip_ws();
@@ -2271,8 +2375,45 @@ const DEP_VERSION_TEMPLATES: &[(&str, &str)] = &[
     ("Perl", "perl"),
 ];
 
-/// The `%(<prefix>ver)s` family, taken from what a recipe depends on.
-fn dependency_version_templates(deps: &[&[ResolvedDep]]) -> HashMap<String, String> {
+fn insert_prefixed_version_templates(tv: &mut HashMap<String, String>, prefix: &str, ver: &str) {
+    if ver.is_empty() || !ver.starts_with(|c: char| c.is_ascii_digit()) {
+        return;
+    }
+    let parts: Vec<&str> = ver.split('.').collect();
+    tv.insert(format!("{prefix}ver"), ver.to_string());
+    tv.insert(format!("{prefix}majver"), parts[0].to_string());
+    if parts.len() > 1 {
+        tv.insert(format!("{prefix}minver"), parts[1].to_string());
+        tv.insert(
+            format!("{prefix}shortver"),
+            format!("{}.{}", parts[0], parts[1]),
+        );
+    }
+}
+
+fn extract_cuda_version_from_label(label: &str) -> Option<&str> {
+    for tag in ["CUDA-", "CUDAcore-"] {
+        if let Some(idx) = label.find(tag) {
+            let rest = &label[idx + tag.len()..];
+            if rest.starts_with(|c: char| c.is_ascii_digit()) {
+                let end = rest.find('-').unwrap_or(rest.len());
+                let ver = &rest[..end];
+                if !ver.is_empty() {
+                    return Some(ver);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// The `%(<prefix>ver)s` family, taken from what a recipe depends on, with a
+/// fallback to a CUDA version named in the toolchain version or versionsuffix.
+fn dependency_version_templates(
+    deps: &[&[ResolvedDep]],
+    toolchain: &Toolchain,
+    versionsuffix: Option<&str>,
+) -> HashMap<String, String> {
     let mut tv = HashMap::new();
     for dep in deps.iter().flat_map(|list| list.iter()) {
         let Some((_, prefix)) = DEP_VERSION_TEMPLATES
@@ -2284,18 +2425,13 @@ fn dependency_version_templates(deps: &[&[ResolvedDep]]) -> HashMap<String, Stri
         // A version constraint is not a version: `>=3.11` names no single
         // number to substitute, and guessing one would be worse than leaving
         // the template visible.
-        if dep.version.is_empty() || !dep.version.starts_with(|c: char| c.is_ascii_digit()) {
-            continue;
-        }
-        let parts: Vec<&str> = dep.version.split('.').collect();
-        tv.insert(format!("{prefix}ver"), dep.version.clone());
-        tv.insert(format!("{prefix}majver"), parts[0].to_string());
-        if parts.len() > 1 {
-            tv.insert(format!("{prefix}minver"), parts[1].to_string());
-            tv.insert(
-                format!("{prefix}shortver"),
-                format!("{}.{}", parts[0], parts[1]),
-            );
+        insert_prefixed_version_templates(&mut tv, prefix, &dep.version);
+    }
+    if !tv.contains_key("cudaver") {
+        if let Some(ver) = extract_cuda_version_from_label(&toolchain.version)
+            .or_else(|| versionsuffix.and_then(extract_cuda_version_from_label))
+        {
+            insert_prefixed_version_templates(&mut tv, "cuda", ver);
         }
     }
     tv
@@ -2469,18 +2605,49 @@ fn value_to_dep(val: &Value, arch: &str) -> Result<ResolvedDep, String> {
 /// Column zero and an `=` that is not `==`, which is what a top-level
 /// easyconfig assignment looks like. Augmented assignment counts: a recipe
 /// that appends to a dependency list still has one.
-fn assigns_at_top_level(src: &str, field: &str) -> bool {
-    src.lines().any(|line| {
-        let Some(rest) = line.strip_prefix(field) else {
-            return false;
-        };
-        let rest = rest.trim_start();
-        match rest.as_bytes() {
-            [b'=', b'=', ..] => false,
-            [b'=', ..] => true,
-            [b'+', b'=', ..] => true,
-            _ => false,
+const ALTERNATIVE_PARAM_NAMES: &[(&str, &str)] = &[
+    ("build_deps", "builddependencies"),
+    ("configure_opts", "configopts"),
+    ("deps", "dependencies"),
+    ("env_mod_category", "moduleclass"),
+    ("exts_class_map", "exts_classmap"),
+    ("exts_default_class", "exts_defaultclass"),
+    ("exts_default_opts", "exts_default_options"),
+    ("hidden_deps", "hiddendependencies"),
+    ("version_prefix", "versionprefix"),
+    ("version_suffix", "versionsuffix"),
+];
+
+fn normalize_alternative_param_names(env: &mut HashMap<String, Value>) {
+    for &(alt, canonical) in ALTERNATIVE_PARAM_NAMES {
+        if !env.contains_key(canonical) {
+            if let Some(value) = env.get(alt).cloned() {
+                env.insert(canonical.to_string(), value);
+            }
         }
+    }
+}
+
+fn assigns_at_top_level(src: &str, field: &str) -> bool {
+    let mut names = vec![field];
+    for &(alt, canonical) in ALTERNATIVE_PARAM_NAMES {
+        if canonical == field {
+            names.push(alt);
+        }
+    }
+    src.lines().any(|line| {
+        names.iter().any(|name| {
+            let Some(rest) = line.strip_prefix(name) else {
+                return false;
+            };
+            let rest = rest.trim_start();
+            match rest.as_bytes() {
+                [b'=', b'=', ..] => false,
+                [b'=', ..] => true,
+                [b'+', b'=', ..] => true,
+                _ => false,
+            }
+        })
     })
 }
 
@@ -2773,6 +2940,7 @@ fn resolve_easyconfig_str_inner(src: &str, arch: &str) -> Result<InnerResolved, 
     parser
         .parse_file()
         .map_err(|e| ParseError::Parse("<string>".into(), e))?;
+    normalize_alternative_param_names(&mut parser.env);
 
     let name = parser
         .env
@@ -2808,11 +2976,11 @@ fn resolve_easyconfig_str_inner(src: &str, arch: &str) -> Result<InnerResolved, 
             "missing toolchain = {'name': ..., 'version': ...} or SYSTEM".into(),
         )
     })?;
-    let toolchain = value_to_toolchain(toolchain_val, "toolchain")
+    let toolchain_raw = value_to_toolchain(toolchain_val, "toolchain")
         .map_err(|e| ParseError::Parse("<string>".into(), e))?;
 
     let vs_for_templates = versionsuffix_raw.clone().unwrap_or_default();
-    let mut templates = build_templates(&name, &version, &vs_for_templates, &toolchain, arch);
+    let mut templates = build_templates(&name, &version, &vs_for_templates, &toolchain_raw, arch);
     // The defaults in build_templates are what EasyBuild uses when the recipe
     // leaves the parameter unset. An assignment has to win, or GITHUB_SOURCE
     // points at the lowercased software name instead of the account the recipe
@@ -2824,6 +2992,10 @@ fn resolve_easyconfig_str_inner(src: &str, arch: &str) -> Result<InnerResolved, 
     let version = apply_templates_str(&version, &templates);
     let versionsuffix = versionsuffix_raw.map(|s| apply_templates_str(&s, &templates));
     let versionprefix = versionprefix_raw.map(|s| apply_templates_str(&s, &templates));
+    let toolchain = Toolchain {
+        name: apply_templates_str(&toolchain_raw.name, &templates),
+        version: apply_templates_str(&toolchain_raw.version, &templates),
+    };
     // Rebuild templates if name/version changed (rare for name/version themselves).
     let mut templates = build_templates(
         &name,
@@ -2885,11 +3057,16 @@ fn resolve_easyconfig_str_inner(src: &str, arch: &str) -> Result<InnerResolved, 
     // What a recipe depends on defines templates the recipe itself uses, so
     // the dependency list has to be read before those can be resolved. Only a
     // second pass, and only when the dependencies define something.
-    let dep_tv = dependency_version_templates(&[&dependencies, &builddependencies]);
-    let (mut templates, versionsuffix, versionprefix, dependencies, builddependencies) =
+    let dep_tv = dependency_version_templates(
+        &[&dependencies, &builddependencies],
+        &toolchain,
+        versionsuffix.as_deref(),
+    );
+    let (mut templates, toolchain, versionsuffix, versionprefix, dependencies, builddependencies) =
         if dep_tv.is_empty() {
             (
                 templates,
+                toolchain,
                 versionsuffix,
                 versionprefix,
                 dependencies,
@@ -2898,6 +3075,12 @@ fn resolve_easyconfig_str_inner(src: &str, arch: &str) -> Result<InnerResolved, 
         } else {
             let mut templates = templates;
             templates.extend(dep_tv);
+            let toolchain = Toolchain {
+                name: apply_templates_str(&toolchain.name, &templates),
+                version: apply_templates_str(&toolchain.version, &templates),
+            };
+            templates.insert("toolchain_name".into(), toolchain.name.clone());
+            templates.insert("toolchain_version".into(), toolchain.version.clone());
             let versionsuffix = versionsuffix.map(|s| apply_templates_str(&s, &templates));
             let versionprefix = versionprefix.map(|s| apply_templates_str(&s, &templates));
             let redo = |val: Option<&Value>| -> Result<Vec<ResolvedDep>, ParseError> {
@@ -2913,6 +3096,7 @@ fn resolve_easyconfig_str_inner(src: &str, arch: &str) -> Result<InnerResolved, 
             let builddependencies = redo(parser.env.get("builddependencies"))?;
             (
                 templates,
+                toolchain,
                 versionsuffix,
                 versionprefix,
                 dependencies,
@@ -4121,17 +4305,19 @@ fn candidate_matches_dep_core(
     if c.name != dep.name {
         return false;
     }
-    // Match the EasyBuild install stem (versionprefix + bare version), so a
-    // dep of mpp-1.0 selects the prefixed Mol and a dep of 1.0 selects plain.
-    if !matches_req(
-        &c.install_version_stem(),
-        &version_field_to_req(&dep.version),
-    ) {
-        return false;
-    }
-    let want_vs = dep.versionsuffix.as_deref().unwrap_or("");
+    // Match the EasyBuild install stem (versionprefix + bare version), or
+    // stem + versionsuffix when the dependency carries an exact combined
+    // version string such as MCR R2019b.8 with no separate suffix tuple.
+    let req = version_field_to_req(&dep.version);
+    let stem = c.install_version_stem();
     let got_vs = c.versionsuffix.as_deref().unwrap_or("");
-    if want_vs != got_vs {
+    let want_vs = dep.versionsuffix.as_deref().unwrap_or("");
+    let stem_match = matches_req(&stem, &req) && want_vs == got_vs;
+    let combined_match = dep.versionsuffix.is_none()
+        && !got_vs.is_empty()
+        && crate::version::requirement_is_exact(&req)
+        && matches_req(&format!("{stem}{got_vs}"), &req);
+    if !stem_match && !combined_match {
         return false;
     }
     if let Some(tc) = &dep.toolchain {
@@ -7418,5 +7604,121 @@ mod hierarchy_universe_tests {
         let kept = filter_toolchain_hierarchy(&all, &gcc, &[]);
         assert_eq!(kept.len(), 1);
         assert_eq!(kept[0].name, "FlexiBLAS");
+    }
+
+    #[test]
+    fn unpacking_accepts_unparenthesized_tuple_rhs() {
+        let src = "\
+easyblock = 'PythonBundle'
+name = 'CuPy'
+version = '13.6.0'
+toolchain = {'name': 'foss', 'version': '2024a'}
+_parallel_tests, _test_type = 1, 'fast'
+exts_list = [
+    ('fastrlock', '0.8.3', {}),
+    ('cupy', version, {
+        'runtest': 'pytest -n %s tests -k \"%s\"' % (_parallel_tests, _test_type),
+    }),
+]
+";
+        let (parsed, skipped) = resolve_easyconfig_str_reporting(src).expect("parse CuPy");
+        assert!(
+            skipped.is_empty(),
+            "unexpected skipped statements: {skipped:?}"
+        );
+        let exts: Vec<&str> = parsed.exts_list.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(exts, vec!["fastrlock", "cupy"]);
+    }
+
+    #[test]
+    fn generator_expressions_work_in_join_calls_and_parens() {
+        let alphapulldown = "\
+easyblock = 'PythonBundle'
+name = 'AlphaPulldown'
+version = '2.0.0'
+toolchain = {'name': 'foss', 'version': '2023a'}
+local_tests = ['custom_db', 'modelcif']
+local_testinstall_PATH = 'PATH=/tmp:$PATH'
+exts_list = [
+    ('contextlib2', '21.6.0', {}),
+    (name, version, {
+        'runtest': '%s pytest -s %s ' % (local_testinstall_PATH, ' '.join('test/test_%s.py' % x for x in local_tests)),
+    }),
+]
+";
+        let (ap, ap_skipped) =
+            resolve_easyconfig_str_reporting(alphapulldown).expect("AlphaPulldown");
+        assert!(
+            ap_skipped.is_empty(),
+            "AlphaPulldown skipped: {ap_skipped:?}"
+        );
+        assert_eq!(
+            ap.exts_list
+                .iter()
+                .map(|e| e.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["contextlib2", "AlphaPulldown"]
+        );
+
+        let jax_and_scib = "\
+easyblock = 'PythonBundle'
+name = 'scib-metrics'
+version = '0.5.9'
+toolchain = {'name': 'foss', 'version': '2024a'}
+_float64_tests_types = ['100-1000', '1000-100']
+_float64_tests_list = [
+    f'tests/utils/test_pca.py::test_pca[{x}]'
+    for x in _float64_tests_types
+]
+_float64_tests = ' '.join(x for x in _float64_tests_list)
+_deselected_tests = ' '.join(
+    f'--deselect {x}'
+    for x in _float64_tests_list
+)
+local_test_cmd = ' '.join((f'{item}!' for item in _float64_tests_types)) + ' && ' + _deselected_tests + ' && ' + _float64_tests
+exts_list = [
+    ('harmonypy', '0.1.0', {}),
+    (name, version, {'runtest': local_test_cmd}),
+]
+";
+        let (sm, sm_skipped) =
+            resolve_easyconfig_str_reporting(jax_and_scib).expect("scib-metrics");
+        assert!(
+            sm_skipped.is_empty(),
+            "scib-metrics skipped: {sm_skipped:?}"
+        );
+        assert_eq!(
+            sm.exts_list
+                .iter()
+                .map(|e| e.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["harmonypy", "scib-metrics"]
+        );
+    }
+
+    #[test]
+    fn alternative_easyconfig_parameter_names_populate_canonical_fields() {
+        let src = "\
+easyblock = 'Bundle'
+name = 'R-crumble'
+version = '0.1.2'
+version_suffix = '-R-%(rver)s'
+version_prefix = 'alt-'
+toolchain = {'name': 'foss', 'version': '2023b'}
+deps = [('R', '4.4.1')]
+build_deps = [('CMake', '3.27.6')]
+configure_opts = '--with-pic'
+env_mod_category = 'tools'
+";
+        let (parsed, skipped) = resolve_easyconfig_str_reporting(src).expect("parse");
+        assert!(skipped.is_empty(), "unexpected skipped: {skipped:?}");
+        assert_eq!(parsed.versionsuffix.as_deref(), Some("-R-4.4.1"));
+        assert_eq!(parsed.versionprefix.as_deref(), Some("alt-"));
+        assert_eq!(parsed.dependencies.len(), 1);
+        assert_eq!(parsed.dependencies[0].name, "R");
+        assert_eq!(parsed.builddependencies.len(), 1);
+        assert_eq!(parsed.builddependencies[0].name, "CMake");
+        assert_eq!(parsed.configopts.as_deref(), Some("--with-pic"));
+        assert_eq!(parsed.moduleclass.as_deref(), Some("tools"));
     }
 }

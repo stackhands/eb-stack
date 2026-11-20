@@ -189,6 +189,7 @@ jobs:
             --test cli_ergonomics \
             --test cli_reference \
             --test cuda_cc \
+            --test cuda_toolchain_templates \
             --test component_reach \
             --test doc_walkthrough \
             --test eb_robot_paths \
@@ -218,6 +219,7 @@ jobs:
             --test stack_shard_robot_versionprefix_field \
             --test planner_traversal \
             --test hierarchy_universe \
+            --test toolchain_hierarchy_parity \
             --test jenkins_build_list \
             --test lint_fixtures \
             --test llms_txt \
@@ -232,6 +234,8 @@ jobs:
             --test pr_overlap_easyconfigs \
             --test pr_overlap_easyconfigs_open \
             --test pypi_cran_extend \
+            --test raw_string_literals \
+            --test dep_matching_and_append \
             --test rebuild_set \
             --test recipe_commands \
             --test repro_scoring \

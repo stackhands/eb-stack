@@ -448,7 +448,15 @@ pub(crate) fn satisfies(candidate: &Candidate, dep: &DepReq) -> bool {
     // is string equality rather than a relaxed match.
     if let Some(pinned) = dep.version_req.strip_prefix("==") {
         let wanted = format!("{pinned}{}", dep.versionsuffix.as_deref().unwrap_or(""));
-        if module_version(candidate) == wanted {
+        let toolchain_ok = match dep.toolchain.as_ref() {
+            None => true,
+            Some(want) => {
+                crate::hierarchy::toolchains_match(&candidate.toolchain, want)
+                    || (crate::hierarchy::is_system_toolchain(want)
+                        && dep.versionsuffix.as_deref().is_some_and(|s| !s.is_empty()))
+            }
+        };
+        if toolchain_ok && module_version(candidate) == wanted {
             return true;
         }
     }
@@ -2337,5 +2345,64 @@ mod tests {
         let plain = build_order(&all, &["App".into()], Choice::Newest).expect("plain");
         assert!(names(&plain).iter().any(|name| name.starts_with("Base-")));
         assert!(names(&plain).iter().any(|name| name.starts_with("Mid-")));
+    }
+
+    #[test]
+    fn satisfies_honors_explicit_toolchain_when_system_variant_shares_version() {
+        let binutils_system = Candidate {
+            name: "binutils".into(),
+            version: "2.38".into(),
+            toolchain: tc("system", "system"),
+            versionsuffix: None,
+            versionprefix: None,
+            easyconfig_path: String::new(),
+            dependencies: vec![],
+            builddependencies: vec![],
+            exts_list: vec![],
+            easyblock: None,
+            moduleclass: None,
+        };
+        let binutils_gcccore = Candidate {
+            name: "binutils".into(),
+            version: "2.38".into(),
+            toolchain: tc("GCCcore", "11.3.0"),
+            versionsuffix: None,
+            versionprefix: None,
+            easyconfig_path: String::new(),
+            dependencies: vec![],
+            builddependencies: vec![],
+            exts_list: vec![],
+            easyblock: None,
+            moduleclass: None,
+        };
+        let dep = DepReq {
+            name: "binutils".into(),
+            version_req: "==2.38".into(),
+            versionsuffix: Some(String::new()),
+            toolchain: Some(tc("GCCcore", "11.3.0")),
+        };
+        assert!(!satisfies(&binutils_system, &dep));
+        assert!(satisfies(&binutils_gcccore, &dep));
+
+        let system_suffixed = Candidate {
+            name: "cuQuantum".into(),
+            version: "25.03.0.11".into(),
+            toolchain: tc("system", "system"),
+            versionsuffix: Some("-CUDA-12.6.0".into()),
+            versionprefix: None,
+            easyconfig_path: String::new(),
+            dependencies: vec![],
+            builddependencies: vec![],
+            exts_list: vec![],
+            easyblock: None,
+            moduleclass: None,
+        };
+        let system_dep = DepReq {
+            name: "cuQuantum".into(),
+            version_req: "==25.03.0.11-CUDA-12.6.0".into(),
+            versionsuffix: Some(String::new()),
+            toolchain: Some(tc("system", "system")),
+        };
+        assert!(satisfies(&system_suffixed, &system_dep));
     }
 }
