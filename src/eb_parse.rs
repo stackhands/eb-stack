@@ -269,17 +269,28 @@ fn strip_comments(src: &str) -> String {
         let mut i = 0usize;
         while i < b.len() {
             let c = b[i];
-            let tripled =
-                (c == b'"' || c == b'\'') && b.get(i + 1) == Some(&c) && b.get(i + 2) == Some(&c);
             match triple {
                 Some(quote) => {
-                    if tripled && c == quote {
+                    if c == b'\\' {
+                        i += 2;
+                        continue;
+                    }
+                    let tripled =
+                        c == quote && b.get(i + 1) == Some(&c) && b.get(i + 2) == Some(&c);
+                    if tripled {
                         triple = None;
                         i += 3;
                         continue;
                     }
                 }
                 None => {
+                    if (in_s || in_d) && c == b'\\' {
+                        i += 2;
+                        continue;
+                    }
+                    let tripled = (c == b'"' || c == b'\'')
+                        && b.get(i + 1) == Some(&c)
+                        && b.get(i + 2) == Some(&c);
                     if tripled && !in_s && !in_d {
                         triple = Some(c);
                         i += 3;
@@ -298,9 +309,14 @@ fn strip_comments(src: &str) -> String {
             i += 1;
         }
         // Inside a multi-line string the line is content, so it is kept as it
-        // stands, blank or not.
+        // stands, blank or not. If the string closed on this line before a
+        // trailing `#`, drop only that comment.
         if opened_before {
-            out.push_str(line);
+            if cut < line.len() {
+                out.push_str(line[..cut].trim_end());
+            } else {
+                out.push_str(line);
+            }
             out.push('\n');
             continue;
         }
@@ -1119,6 +1135,10 @@ impl<'a> Parser<'a> {
             self.pos += 2;
             let start = self.pos;
             while self.pos + 2 < self.src.len() {
+                if self.src[self.pos] == b'\\' {
+                    self.pos += 2;
+                    continue;
+                }
                 if self.src[self.pos] == quote
                     && self.src[self.pos + 1] == quote
                     && self.src[self.pos + 2] == quote
@@ -4947,6 +4967,60 @@ dependencies = [('Java', '21', '', SYSTEM)]\nmoduleclass = 'devel'\n";
                    toolchain = {'name': 'foss', 'version': '2016b'}\n";
         let parsed = resolve_easyconfig_str(src).expect("C# must not end the string");
         assert_eq!(parsed.toolchain.name, "foss");
+    }
+
+    #[test]
+    fn escaped_quotes_before_hash_do_not_truncate_strings() {
+        let single = "name = 'Demo'\nversion = '1.0'\n\
+                      description = 'It\\'s C# tooling'\n\
+                      toolchain = {'name': 'foss', 'version': '2026.1'}\n\
+                      dependencies = [('zlib', '1.3.1')]\n";
+        let parsed = resolve_easyconfig_str(single).expect("escaped apostrophe before #");
+        assert_eq!(parsed.toolchain.name, "foss");
+        assert_eq!(parsed.dependencies.len(), 1);
+        assert_eq!(parsed.dependencies[0].name, "zlib");
+
+        let double = "name = 'Demo'\nversion = '1.0'\n\
+                      postinstallcmds = [\"sed -i \\\"s/#foo/bar/\\\" file\"] # strip\n\
+                      toolchain = {'name': 'foss', 'version': '2026.1'}\n\
+                      dependencies = [('zlib', '1.3.1')]\n";
+        let stripped = strip_comments(double);
+        assert!(
+            stripped.contains("#foo"),
+            "escaped quote cut string: {stripped}"
+        );
+        assert!(
+            !stripped.contains("# strip"),
+            "trailing comment stayed: {stripped}"
+        );
+        let parsed = resolve_easyconfig_str(double).expect("escaped quote before #");
+        assert_eq!(parsed.toolchain.name, "foss");
+        assert_eq!(parsed.dependencies.len(), 1);
+
+        let escaped_slash = strip_comments("prefix = 'a\\\\' # strip\n");
+        assert_eq!(escaped_slash, "prefix = 'a\\\\'\n");
+    }
+
+    #[test]
+    fn escaped_quotes_and_trailing_comment_in_triple_quoted_strings() {
+        let src = "name = 'Demo'\nversion = '1.0'\n\
+                   description = \"\"\"line 1 \\\"\"\" still # inside\n\
+                   line 2\"\"\" # trailing comment\n\
+                   toolchain = {'name': 'foss', 'version': '2026.1'}\n\
+                   dependencies = [('zlib', '1.3.1')]\n";
+        let stripped = strip_comments(src);
+        assert!(
+            stripped.contains("still # inside"),
+            "inner # cut: {stripped}"
+        );
+        assert!(
+            !stripped.contains("# trailing comment"),
+            "comment after closing triple quote stayed: {stripped}"
+        );
+        let parsed = resolve_easyconfig_str(src).expect("escaped triple quotes must parse");
+        assert_eq!(parsed.toolchain.name, "foss");
+        assert_eq!(parsed.dependencies.len(), 1);
+        assert_eq!(parsed.dependencies[0].name, "zlib");
     }
 
     #[test]
