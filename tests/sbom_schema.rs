@@ -235,3 +235,144 @@ fn a_repeated_runtime_dep_satisfies_unique_items() {
     let depends = app["dependsOn"].as_array().expect("dependsOn");
     assert_eq!(depends.len(), 1, "{depends:?}");
 }
+
+#[test]
+fn coinstalled_versionsuffix_builds_have_distinct_bom_refs_and_edges() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let cpu_eb = dir.path().join("GROMACS-2025.2-foss-2026.1.eb");
+    let gpu_eb = dir.path().join("GROMACS-2025.2-foss-2026.1-CUDA-12.8.0.eb");
+    let wrapper_eb = dir.path().join("Wrapper-1.0-foss-2026.1.eb");
+    std::fs::write(
+        &cpu_eb,
+        "name = 'GROMACS'\nversion = '2025.2'\ntoolchain = {'name': 'foss', 'version': '2026.1'}\n",
+    )
+    .expect("cpu recipe");
+    std::fs::write(
+        &gpu_eb,
+        "name = 'GROMACS'\nversion = '2025.2'\nversionsuffix = '-CUDA-12.8.0'\ntoolchain = {'name': 'foss', 'version': '2026.1'}\n",
+    )
+    .expect("gpu recipe");
+    std::fs::write(
+        &wrapper_eb,
+        "name = 'Wrapper'\nversion = '1.0'\ntoolchain = {'name': 'foss', 'version': '2026.1'}\ndependencies = [('GROMACS', '2025.2', '-CUDA-12.8.0')]\n",
+    )
+    .expect("wrapper recipe");
+
+    let toolchain = Toolchain {
+        name: "foss".into(),
+        version: "2026.1".into(),
+    };
+    let lock = StackLock {
+        schema_version: 1,
+        toolchain: toolchain.clone(),
+        generation_label: Some("2026.1".into()),
+        packages: vec![
+            LockPackage {
+                name: "GROMACS".into(),
+                version: "2025.2".into(),
+                toolchain: toolchain.clone(),
+                versionsuffix: None,
+                easyconfig_path: "GROMACS-2025.2-foss-2026.1.eb".into(),
+            },
+            LockPackage {
+                name: "GROMACS".into(),
+                version: "2025.2".into(),
+                toolchain: toolchain.clone(),
+                versionsuffix: Some("-CUDA-12.8.0".into()),
+                easyconfig_path: "GROMACS-2025.2-foss-2026.1-CUDA-12.8.0.eb".into(),
+            },
+            LockPackage {
+                name: "Wrapper".into(),
+                version: "1.0".into(),
+                toolchain,
+                versionsuffix: None,
+                easyconfig_path: "Wrapper-1.0-foss-2026.1.eb".into(),
+            },
+        ],
+        solver: SolverMeta {
+            engine: "resolvo".into(),
+            engine_version: "0.3.0".into(),
+            timestamp: "2026-08-14T00:00:00Z".into(),
+            criteria: Vec::new(),
+        },
+    };
+
+    let (document, stats) =
+        eb_stack::lock_to_cyclonedx_from_recipes(&lock, &dir.path().join("stack.lock.json"));
+    assert_eq!(stats.recipes_read, 3);
+
+    let schema = schema();
+    let validator = jsonschema::options()
+        .with_retriever(VendoredSchemas(schema_dir()))
+        .build(&schema)
+        .expect("the schema compiles");
+    let errors: Vec<String> = validator
+        .iter_errors(&document)
+        .map(|e| format!("{} at {}", e, e.instance_path))
+        .collect();
+    assert!(
+        errors.is_empty(),
+        "schema rejected co-installed versionsuffix SBOM:\n{}",
+        errors.join("\n")
+    );
+
+    let comp_refs: Vec<&str> = document["components"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["bom-ref"].as_str().unwrap())
+        .collect();
+    let distinct_comp_refs: std::collections::BTreeSet<&str> = comp_refs.iter().copied().collect();
+    assert_eq!(
+        distinct_comp_refs.len(),
+        3,
+        "component bom-ref values collided: {comp_refs:?}"
+    );
+    for component in document["components"].as_array().unwrap() {
+        assert_eq!(
+            component["purl"].as_str(),
+            component["bom-ref"].as_str(),
+            "purl should parse and match bom-ref: {component}"
+        );
+    }
+
+    let dep_refs: std::collections::BTreeSet<&str> = document["dependencies"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|d| d["ref"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        dep_refs.len(),
+        3,
+        "dependency ref values collided: {dep_refs:?}"
+    );
+
+    let task_refs: std::collections::BTreeSet<&str> = document["formulation"][0]["workflows"][0]
+        ["tasks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["bom-ref"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        task_refs.len(),
+        3,
+        "formulation task bom-ref values collided: {task_refs:?}"
+    );
+
+    let wrapper_deps = document["dependencies"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|d| d["ref"].as_str().unwrap().contains("Wrapper@"))
+        .expect("Wrapper dependency entry")["dependsOn"]
+        .as_array()
+        .unwrap();
+    assert_eq!(wrapper_deps.len(), 1, "{wrapper_deps:?}");
+    let target = wrapper_deps[0].as_str().unwrap();
+    assert!(
+        target.contains("versionsuffix=-CUDA-12.8.0"),
+        "Wrapper should depend on the CUDA variant, got {target}"
+    );
+}

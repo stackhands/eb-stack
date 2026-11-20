@@ -10766,8 +10766,8 @@ purpose is SBOM emission.
 ```
 
 Each component's `bom-ref` / `purl` is a synthetic `pkg:generic/` reference
-(EasyBuild has no dedicated Package URL (purl) type) embedding name, version, and
-toolchain. Metadata `lifecycles: pre-build` and
+(EasyBuild has no dedicated Package URL (purl) type) embedding name, version,
+toolchain, and any non-empty `versionsuffix` qualifier. Metadata `lifecycles: pre-build` and
 `eb_stack:lifecycle: pre-install-plan` mark a **planned** inventory from the
 solver selection, not a scan of installed software.
 
@@ -12986,7 +12986,7 @@ jq -r '.dependencies[] | select(.ref|startswith("pkg:generic/Cbc@")) | .ref, (.d
 ```text
 pkg:generic/Cbc@2.10.12?toolchain=foss-2025b
   pkg:generic/METIS@5.1.0?toolchain=GCCcore-14.3.0
-  pkg:generic/MUMPS@5.8.1?toolchain=foss-2025b
+  pkg:generic/MUMPS@5.8.1?toolchain=foss-2025b&versionsuffix=-metis
   pkg:generic/CoinUtils@2.11.12?toolchain=GCC-14.3.0
   pkg:generic/Osi@0.108.11?toolchain=GCC-14.3.0
   pkg:generic/Clp@1.17.10?toolchain=foss-2025b
@@ -13005,7 +13005,7 @@ jq -r --arg ref 'pkg:generic/METIS@5.1.0?toolchain=GCCcore-14.3.0' '.dependencie
 ```text
 pkg:generic/Cbc@2.10.12?toolchain=foss-2025b
 pkg:generic/Clp@1.17.10?toolchain=foss-2025b
-pkg:generic/MUMPS@5.8.1?toolchain=foss-2025b
+pkg:generic/MUMPS@5.8.1?toolchain=foss-2025b&versionsuffix=-metis
 ```
 
 # A CycloneDX consumer

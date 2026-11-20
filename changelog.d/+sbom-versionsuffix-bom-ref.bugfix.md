@@ -1,0 +1,1 @@
+CycloneDX SBOM emission includes a non-empty `versionsuffix` qualifier in each component `bom-ref` and `purl`, keeping co-installed builds of the same package release distinct so `dependencies` and formulation `taskDependencies` satisfy CycloneDX 1.5 uniqueness.

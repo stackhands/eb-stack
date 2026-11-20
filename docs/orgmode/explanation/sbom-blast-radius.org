@@ -230,7 +230,7 @@ jq -r '.dependencies[] | select(.ref|startswith("pkg:generic/Cbc@")) | .ref, (.d
 #+begin_src text
 pkg:generic/Cbc@2.10.12?toolchain=foss-2025b
   pkg:generic/METIS@5.1.0?toolchain=GCCcore-14.3.0
-  pkg:generic/MUMPS@5.8.1?toolchain=foss-2025b
+  pkg:generic/MUMPS@5.8.1?toolchain=foss-2025b&versionsuffix=-metis
   pkg:generic/CoinUtils@2.11.12?toolchain=GCC-14.3.0
   pkg:generic/Osi@0.108.11?toolchain=GCC-14.3.0
   pkg:generic/Clp@1.17.10?toolchain=foss-2025b
@@ -249,7 +249,7 @@ jq -r --arg ref 'pkg:generic/METIS@5.1.0?toolchain=GCCcore-14.3.0' '.dependencie
 #+begin_src text
 pkg:generic/Cbc@2.10.12?toolchain=foss-2025b
 pkg:generic/Clp@1.17.10?toolchain=foss-2025b
-pkg:generic/MUMPS@5.8.1?toolchain=foss-2025b
+pkg:generic/MUMPS@5.8.1?toolchain=foss-2025b&versionsuffix=-metis
 #+end_src
 
 * A CycloneDX consumer
