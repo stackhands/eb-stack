@@ -1,7 +1,9 @@
 use eb_stack::{
-    candidate_matches_dep, check_recipe_deps, resolve_easyconfig_str,
-    resolve_easyconfig_str_for_arch,
+    candidate_matches_dep, check_recipe_deps, module_name, parse_easyconfig_tree,
+    resolve_easyconfig_file, resolve_easyconfig_str, resolve_easyconfig_str_for_arch, ModuleKey,
+    Toolchain,
 };
+use std::path::PathBuf;
 
 #[test]
 fn check_recipe_deps_matches_version_plus_versionsuffix_pin() {
@@ -82,4 +84,47 @@ builddependencies.append(('CMake', '3.27.6'),)
         .collect();
     assert_eq!(dep_names, vec!["zlib", "libunwind"]);
     assert_eq!(bdep_names, vec!["Automake", "CMake"]);
+}
+#[test]
+fn real_pennylane_conditional_augassign_resolves_cuquantum() {
+    let ec_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("fixtures")
+        .join("parity_pennylane_cond")
+        .join("easyconfigs");
+    let cands = parse_easyconfig_tree(&ec_root).unwrap().candidates;
+    let pennylane_eb = ec_root.join("p/PennyLane/PennyLane-0.37.0-foss-2023a-CUDA-12.1.1.eb");
+    let pennylane_resolved = resolve_easyconfig_file(&pennylane_eb).unwrap();
+    let pennylane = pennylane_resolved.to_candidate();
+    assert_eq!(
+        module_name(&ModuleKey::of(&pennylane)),
+        "PennyLane/0.37.0-foss-2023a-CUDA-12.1.1"
+    );
+
+    let cuquantum_resolved = pennylane_resolved
+        .dependencies
+        .iter()
+        .find(|d| d.name == "cuQuantum")
+        .expect("PennyLane must keep conditional += cuQuantum dependency");
+    let cuquantum_cand = cands
+        .iter()
+        .find(|c| module_name(&ModuleKey::of(c)) == "cuQuantum/24.08.0.5-CUDA-12.1.1")
+        .expect("cuQuantum candidate in parity_pennylane_cond");
+    assert!(
+        candidate_matches_dep(cuquantum_cand, cuquantum_resolved),
+        "cuQuantum/24.08.0.5-CUDA-12.1.1 must satisfy PennyLane cuQuantum ResolvedDep"
+    );
+
+    let cuquantum_dep = pennylane
+        .dependencies
+        .iter()
+        .find(|d| d.name == "cuQuantum")
+        .expect("cuQuantum DepReq");
+    assert_eq!(
+        cuquantum_dep.toolchain,
+        Some(Toolchain {
+            name: "system".into(),
+            version: "system".into(),
+        })
+    );
+    assert_eq!(cuquantum_dep.versionsuffix.as_deref(), Some("-CUDA-12.1.1"));
 }
