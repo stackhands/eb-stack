@@ -907,7 +907,9 @@ impl LockKind {
         match name {
             "flock" => Ok(Self::Flock),
             "posix" => Ok(Self::Posix),
-            other => bail!("lock kind {other:?} is neither flock nor posix"),
+            other => Err(crate::cli_parse::usage(format!(
+                "lock kind {other:?} is neither flock nor posix"
+            ))),
         }
     }
 }
@@ -1047,11 +1049,37 @@ fn observe_live_jobs(cmd: &str) -> Result<Vec<String>> {
     Ok(jobs)
 }
 
+fn validate_admit_request(args: &AdmitRequest) -> Result<()> {
+    check_job(&args.job).map_err(|error| crate::cli_parse::usage(error.to_string()))?;
+    match (&args.quota_json, &args.quota_cmd) {
+        (None, None) => {
+            return Err(crate::cli_parse::usage(
+                "--quota-json or --quota-cmd is required",
+            ));
+        }
+        (Some(_), Some(_)) => {
+            return Err(crate::cli_parse::usage(
+                "--quota-json and --quota-cmd are mutually exclusive",
+            ));
+        }
+        _ => {}
+    }
+    if args.live_jobs.is_some() && args.live_jobs_cmd.is_some() {
+        return Err(crate::cli_parse::usage(
+            "--live-jobs and --live-jobs-cmd are mutually exclusive",
+        ));
+    }
+    if let Some(ts) = &args.ts {
+        crate::site_commands::timestamp_for("--ts", Some(ts.clone()), true)?;
+    }
+    Ok(())
+}
+
 /// Under the lock when one is named: observe the quota, read the
 /// reservations, decide, write the reservation on admit, and remove stale
 /// reservations only when asked. A failed quota observation refuses.
 pub fn run_stack_admit(args: &AdmitRequest) -> Result<AdmitReport> {
-    check_job(&args.job).map_err(|error| crate::cli_parse::usage(error.to_string()))?;
+    validate_admit_request(args)?;
     let _lock = match &args.lock {
         Some(path) => {
             let file = std::fs::OpenOptions::new()
@@ -1110,7 +1138,7 @@ pub fn run_stack_admit(args: &AdmitRequest) -> Result<AdmitReport> {
             }
         },
     };
-    let stamp = crate::site_commands::generated_at(args.ts.clone(), true)?;
+    let stamp = crate::site_commands::timestamp_for("--ts", args.ts.clone(), true)?;
     let reservations = read_reservations(&args.reservations)?;
     let mut waiting = BTreeSet::new();
     if args.lock.is_some() && refusal.is_none() {

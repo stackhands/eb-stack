@@ -32,8 +32,8 @@ fn rejected_pull_request(flag: &str, number: u64, input: &[u64]) -> String {
     }
 }
 
-/// `--generated-at` is stored as given. An absent flag is the current UTC time.
-pub(crate) fn generated_at(value: Option<String>, seconds: bool) -> Result<String> {
+/// An RFC 3339 timestamp for `flag`, or the current UTC time when absent.
+pub(crate) fn timestamp_for(flag: &str, value: Option<String>, seconds: bool) -> Result<String> {
     let Some(text) = value else {
         return Ok(if seconds {
             chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
@@ -42,8 +42,13 @@ pub(crate) fn generated_at(value: Option<String>, seconds: bool) -> Result<Strin
         });
     };
     chrono::DateTime::parse_from_rfc3339(&text)
-        .map_err(|error| usage(format!("--generated-at {text}: {error}")))?;
+        .map_err(|error| usage(format!("{flag} {text}: {error}")))?;
     Ok(text)
+}
+
+/// `--generated-at` is stored as given. An absent flag is the current UTC time.
+pub(crate) fn generated_at(value: Option<String>, seconds: bool) -> Result<String> {
+    timestamp_for("--generated-at", value, seconds)
 }
 
 /// `--version` on `component-reach`: `*`, an exact version, or a requirement.
