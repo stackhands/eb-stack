@@ -218,6 +218,7 @@ jobs:
             --test stack_shard_robot_versionprefix_field \
             --test planner_traversal \
             --test hierarchy_universe \
+            --test toolchain_hierarchy_parity \
             --test jenkins_build_list \
             --test lint_fixtures \
             --test llms_txt \

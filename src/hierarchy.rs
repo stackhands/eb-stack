@@ -596,15 +596,39 @@ pub fn known_hierarchy(parent: &Toolchain) -> Option<ToolchainHierarchy> {
 /// composites are included only when their definition recipe is in the tree.
 /// GCCcore is assumed version-paired with GCC (true for all modern
 /// generations, 2020a+). Non-GCC-family parents return `None`.
+fn append_postorder(
+    node: &Toolchain,
+    children: &HashMap<(String, String), Vec<Toolchain>>,
+    visiting: &mut std::collections::HashSet<(String, String)>,
+    visited: &mut std::collections::HashSet<(String, String)>,
+    members: &mut Vec<Toolchain>,
+) {
+    let key = (node.name.clone(), node.version.clone());
+    if visited.contains(&key) || !visiting.insert(key.clone()) {
+        return;
+    }
+    if let Some(subs) = children.get(&key) {
+        for sub in subs {
+            append_postorder(sub, children, visiting, visited, members);
+        }
+    }
+    visiting.remove(&key);
+    visited.insert(key);
+    if !members.iter().any(|m| toolchains_match(m, node)) {
+        members.push(node.clone());
+    }
+}
+
 /// A hierarchy read off the tree, for a toolchain no family rule covers.
 ///
 /// A toolchain is defined by a recipe, and that recipe's dependencies say what
 /// it is made of: `iimpi` names `intel-compilers` and `impi`, and
 /// `intel-compilers` names the `GCCcore` it was built on. Any dependency that
-/// other recipes in the tree use *as* a toolchain is a subtoolchain, so the
-/// chain can be walked without knowing the family: an unfamiliar composite
-/// stops being unplannable, which for a site is the difference between a
-/// generation it can bump and one it cannot.
+/// other recipes in the tree use *as* a toolchain is a subtoolchain, and any
+/// same-version toolchain definition whose pins are a strict subset of the
+/// parent's (such as `iimkl` inside `intel` or `lfbf` inside `lfoss`) is an
+/// intermediate composite, so the chain can be walked without hardcoding the
+/// family and emitted in topological subtoolchain-first order.
 fn derive_hierarchy_by_walking(
     parent: &Toolchain,
     cands: &[Candidate],
@@ -613,16 +637,12 @@ fn derive_hierarchy_by_walking(
         .iter()
         .map(|candidate| candidate.toolchain.name.as_str())
         .collect();
-    let mut members: Vec<Toolchain> = vec![Toolchain {
-        name: "system".into(),
-        version: String::new(),
-    }];
+    let mut children: HashMap<(String, String), Vec<Toolchain>> = HashMap::new();
     let mut pending = vec![parent.clone()];
-    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-    // Breadth-first from the parent down; each level found is inserted before
-    // the toolchain that named it, so the result stays lowest-first.
+    let mut seen: std::collections::HashSet<(String, String)> = std::collections::HashSet::new();
     while let Some(current) = pending.pop() {
-        if !seen.insert(format!("{}-{}", current.name, current.version)) {
+        let current_key = (current.name.clone(), current.version.clone());
+        if !seen.insert(current_key.clone()) {
             continue;
         }
         let Some(definition) = cands
@@ -631,6 +651,17 @@ fn derive_hierarchy_by_walking(
         else {
             continue;
         };
+        let mut subs: Vec<Toolchain> = Vec::new();
+        let mut push_sub = |tc: Toolchain| {
+            if !is_system_toolchain(&tc)
+                && !toolchains_match(&tc, &current)
+                && !subs.iter().any(|m| toolchains_match(m, &tc))
+            {
+                subs.push(tc);
+            }
+        };
+        let mut def_pins: std::collections::HashSet<(&str, &str)> =
+            std::collections::HashSet::new();
         for dependency in definition
             .dependencies
             .iter()
@@ -640,34 +671,60 @@ fn derive_hierarchy_by_walking(
             // `intel` names `imkl-FFTW` at `('iimpi', version)` and never
             // names iimpi itself, so reading dependency names alone leaves the
             // MPI level out of the generation's own hierarchy.
-            let named = dependency.toolchain.as_ref().filter(|toolchain| {
-                !is_system_toolchain(toolchain)
-                    && !members.iter().any(|m| toolchains_match(m, toolchain))
-            });
-            if let Some(toolchain) = named {
-                members.push((*toolchain).clone());
-                pending.push((*toolchain).clone());
+            if let Some(toolchain) = dependency.toolchain.as_ref() {
+                push_sub((*toolchain).clone());
             }
-            if !used_as_toolchain.contains(dependency.name.as_str()) {
-                continue;
+            if let Some(version) = exact_pin_version(&dependency.version_req) {
+                def_pins.insert((dependency.name.as_str(), version));
+                if used_as_toolchain.contains(dependency.name.as_str()) {
+                    push_sub(Toolchain {
+                        name: dependency.name.clone(),
+                        version: version.to_string(),
+                    });
+                }
             }
-            let Some(version) = exact_pin_version(&dependency.version_req) else {
-                continue;
-            };
-            let found = Toolchain {
-                name: dependency.name.clone(),
-                version: version.to_string(),
-            };
-            if !members.iter().any(|m| toolchains_match(m, &found)) {
-                members.push(found.clone());
-            }
-            pending.push(found);
         }
+        for sib in cands {
+            if sib.name == current.name
+                || sib.version != current.version
+                || !is_system_toolchain(&sib.toolchain)
+                || sib.dependencies.is_empty()
+                || sib.dependencies.len() >= definition.dependencies.len()
+            {
+                continue;
+            }
+            if !used_as_toolchain.contains(sib.name.as_str())
+                && sib.easyblock.as_deref() != Some("Toolchain")
+            {
+                continue;
+            }
+            let covered = sib.dependencies.iter().all(|dep| {
+                exact_pin_version(&dep.version_req)
+                    .is_some_and(|v| def_pins.contains(&(dep.name.as_str(), v)))
+            });
+            if covered {
+                push_sub(Toolchain {
+                    name: sib.name.clone(),
+                    version: sib.version.clone(),
+                });
+            }
+        }
+        subs.sort_by(|a, b| a.name.cmp(&b.name).then_with(|| a.version.cmp(&b.version)));
+        for sub in &subs {
+            pending.push(sub.clone());
+        }
+        children.insert(current_key, subs);
     }
-    if members.len() < 2 {
+    let mut members: Vec<Toolchain> = vec![Toolchain {
+        name: "system".into(),
+        version: String::new(),
+    }];
+    let mut visiting = std::collections::HashSet::new();
+    let mut visited = std::collections::HashSet::new();
+    append_postorder(parent, &children, &mut visiting, &mut visited, &mut members);
+    if members.len() < 3 {
         return None;
     }
-    members.push(parent.clone());
     Some(ToolchainHierarchy {
         parent: parent.clone(),
         members,
@@ -742,18 +799,20 @@ pub fn derive_hierarchy_from_candidates(
             version: gcc_ver,
         },
     ];
-    for comp in COMPOSITES {
-        if comp == parent.name {
-            break; // parent itself is appended last (highest rank)
-        }
-        let defined = cands
-            .iter()
-            .any(|c| c.name == comp && c.version == parent.version);
-        if defined {
-            members.push(Toolchain {
-                name: comp.into(),
-                version: parent.version.clone(),
-            });
+    if parent.name == "foss" {
+        for comp in COMPOSITES {
+            if comp == parent.name {
+                break; // parent itself is appended last (highest rank)
+            }
+            let defined = cands
+                .iter()
+                .any(|c| c.name == comp && c.version == parent.version);
+            if defined {
+                members.push(Toolchain {
+                    name: comp.into(),
+                    version: parent.version.clone(),
+                });
+            }
         }
     }
     members.push(parent.clone());
