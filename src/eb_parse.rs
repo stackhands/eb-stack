@@ -4491,11 +4491,26 @@ fn candidate_matches_dep_core(
         && !got_vs.is_empty()
         && crate::version::requirement_is_exact(&req)
         && matches_req(&format!("{stem}{got_vs}"), &req);
-    if !stem_match && !combined_match {
+    let module_ver = if crate::hierarchy::is_system_toolchain(&c.toolchain) {
+        format!("{stem}{got_vs}")
+    } else {
+        format!(
+            "{stem}-{}-{}{got_vs}",
+            c.toolchain.name, c.toolchain.version
+        )
+    };
+    let full_module_match = dep.toolchain.is_none()
+        && dep.versionsuffix.is_none()
+        && crate::version::requirement_is_exact(&req)
+        && matches_req(&module_ver, &req);
+    if !stem_match && !combined_match && !full_module_match {
         return false;
     }
     if let Some(tc) = &dep.toolchain {
         return crate::hierarchy::toolchains_match(&c.toolchain, tc);
+    }
+    if full_module_match && module_ver != stem {
+        return true;
     }
     // Implicit dependencies minimize within the generation, but do not fall
     // through to SYSTEM unless the recipe itself uses SYSTEM.

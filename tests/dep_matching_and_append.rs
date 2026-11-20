@@ -1,7 +1,7 @@
 use eb_stack::{
-    candidate_matches_dep, check_recipe_deps, module_name, parse_easyconfig_tree,
-    resolve_easyconfig_file, resolve_easyconfig_str, resolve_easyconfig_str_for_arch, ModuleKey,
-    Toolchain,
+    build_order, candidate_matches_dep, check_recipe_deps, module_name, parse_easyconfig_tree,
+    resolve_easyconfig_file, resolve_easyconfig_str, resolve_easyconfig_str_for_arch, Choice,
+    ModuleKey, Toolchain,
 };
 use std::path::PathBuf;
 
@@ -127,4 +127,48 @@ fn real_pennylane_conditional_augassign_resolves_cuquantum() {
         })
     );
     assert_eq!(cuquantum_dep.versionsuffix.as_deref(), Some("-CUDA-12.1.1"));
+}
+
+#[test]
+fn real_sentieon_system_suffixed_version_req_resolves_jemalloc() {
+    let ec_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("fixtures")
+        .join("parity_sentieon_system_dep")
+        .join("easyconfigs");
+    let cands = parse_easyconfig_tree(&ec_root).unwrap().candidates;
+    let sentieon_eb = ec_root.join("s/sentieon-genomics/sentieon-genomics-202503.02.eb");
+    let sentieon = resolve_easyconfig_file(&sentieon_eb).unwrap();
+    let sentieon_cand = sentieon.to_candidate();
+    assert_eq!(
+        module_name(&ModuleKey::of(&sentieon_cand)),
+        "sentieon-genomics/202503.02"
+    );
+
+    let jemalloc_cand = cands
+        .iter()
+        .find(|c| c.name == "jemalloc")
+        .expect("jemalloc candidate");
+    assert!(candidate_matches_dep(
+        jemalloc_cand,
+        &sentieon.dependencies[0]
+    ));
+    assert_eq!(
+        jemalloc_cand.toolchain,
+        Toolchain {
+            name: "GCCcore".into(),
+            version: "13.3.0".into(),
+        }
+    );
+
+    let order = build_order(&cands, &["sentieon-genomics".into()], Choice::Newest)
+        .expect("build_order for sentieon-genomics");
+    let jemalloc_idx = order
+        .iter()
+        .position(|c| module_name(&ModuleKey::of(c)) == "jemalloc/5.3.0-GCCcore-13.3.0")
+        .expect("jemalloc/5.3.0-GCCcore-13.3.0 in build_order");
+    let sentieon_idx = order
+        .iter()
+        .position(|c| module_name(&ModuleKey::of(c)) == "sentieon-genomics/202503.02")
+        .expect("sentieon-genomics/202503.02 in build_order");
+    assert!(jemalloc_idx < sentieon_idx);
 }
