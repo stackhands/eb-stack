@@ -1,0 +1,1 @@
+Recognize SYSTEM toolchain and GCCcore-based compiler recipes in derive_hierarchy_by_walking for sparse trees without toolchain users, and resolve split version plus versionsuffix compiler definitions.

@@ -619,13 +619,37 @@ fn append_postorder(
     }
 }
 
+fn joined_candidate_version(c: &Candidate) -> String {
+    format!(
+        "{}{}",
+        c.version,
+        c.versionsuffix.as_deref().unwrap_or_default()
+    )
+}
+
+fn is_compiler_or_toolchain_definition(c: &Candidate) -> bool {
+    if !is_system_toolchain(&c.toolchain) {
+        return false;
+    }
+    if c.easyblock.as_deref() == Some("Toolchain") {
+        return true;
+    }
+    c.moduleclass.as_deref() == Some("compiler")
+        && (c.name == "GCCcore"
+            || c.dependencies
+                .iter()
+                .chain(c.builddependencies.iter())
+                .any(|d| matches!(d.name.as_str(), "GCCcore" | "GCC" | "nvidia-compilers")))
+}
+
 /// A hierarchy read off the tree, for a toolchain no family rule covers.
 ///
 /// A toolchain is defined by a recipe, and that recipe's dependencies say what
 /// it is made of: `iimpi` names `intel-compilers` and `impi`, and
 /// `intel-compilers` names the `GCCcore` it was built on. Any dependency that
-/// other recipes in the tree use *as* a toolchain is a subtoolchain, and any
-/// same-version toolchain definition whose pins are a strict subset of the
+/// other recipes in the tree use *as* a toolchain (or whose own `SYSTEM` recipe
+/// is a toolchain / GCCcore-based compiler definition) is a subtoolchain, and
+/// any same-version toolchain definition whose pins are a strict subset of the
 /// parent's (such as `iimkl` inside `intel` or `lfbf` inside `lfoss`) is an
 /// intermediate composite, so the chain can be walked without hardcoding the
 /// family and emitted in topological subtoolchain-first order.
@@ -648,6 +672,11 @@ fn derive_hierarchy_by_walking(
         let Some(definition) = cands
             .iter()
             .find(|c| c.name == current.name && c.version == current.version)
+            .or_else(|| {
+                cands.iter().find(|c| {
+                    c.name == current.name && joined_candidate_version(c) == current.version
+                })
+            })
         else {
             continue;
         };
@@ -676,10 +705,29 @@ fn derive_hierarchy_by_walking(
             }
             if let Some(version) = exact_pin_version(&dependency.version_req) {
                 def_pins.insert((dependency.name.as_str(), version));
-                if used_as_toolchain.contains(dependency.name.as_str()) {
+                let full_version = match dependency.versionsuffix.as_deref() {
+                    Some(sfx) if !sfx.is_empty() => format!("{version}{sfx}"),
+                    _ => version.to_string(),
+                };
+                let is_subtoolchain = used_as_toolchain.contains(dependency.name.as_str())
+                    || cands.iter().any(|c| {
+                        c.name == dependency.name
+                            && (c.version == full_version
+                                || joined_candidate_version(c) == full_version)
+                            && is_compiler_or_toolchain_definition(c)
+                    });
+                if is_subtoolchain {
+                    let sub_ver = if full_version != version
+                        && cands.iter().any(|c| {
+                            c.name == dependency.name && joined_candidate_version(c) == full_version
+                        }) {
+                        full_version
+                    } else {
+                        version.to_string()
+                    };
                     push_sub(Toolchain {
                         name: dependency.name.clone(),
-                        version: version.to_string(),
+                        version: sub_ver,
                     });
                 }
             }

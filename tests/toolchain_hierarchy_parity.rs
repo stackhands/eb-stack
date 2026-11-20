@@ -267,3 +267,58 @@ fn real_foss_2022a_sibling_order_matches_framework_subtoolchain() {
         ]
     );
 }
+
+#[test]
+fn real_sparse_iimkl_and_rompi_hierarchies_keep_compiler_and_gcccore_levels() {
+    let fixture_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("fixtures")
+        .join("parity_sparse_compiler_hierarchy");
+    let ec_root = fixture_dir.join("easyconfigs");
+    let fw_root = fixture_dir.join("framework");
+
+    let iimkl_py = fs::read_to_string(fw_root.join("easybuild/toolchains/iimkl.py")).unwrap();
+    let ic_py =
+        fs::read_to_string(fw_root.join("easybuild/toolchains/compiler/intel_compilers.py"))
+            .unwrap();
+    let rompi_py = fs::read_to_string(fw_root.join("easybuild/toolchains/rompi.py")).unwrap();
+    let rc_py = fs::read_to_string(fw_root.join("easybuild/toolchains/compiler/rocm_compilers.py"))
+        .unwrap();
+    assert!(iimkl_py.contains("self.SUBTOOLCHAIN = IntelCompilersToolchain.NAME"));
+    assert!(ic_py.contains("COMPILER_MODULE_NAME = ['intel-compilers']"));
+    assert!(rompi_py.contains("SUBTOOLCHAIN = ROCmCompilersToolchain.NAME"));
+    assert!(rc_py.contains("SUBTOOLCHAIN = SYSTEM_TOOLCHAIN_NAME"));
+
+    let cands = parse_easyconfig_tree(&ec_root).unwrap().candidates;
+
+    let iimkl_h = hierarchy_for_with_tree(
+        &Toolchain {
+            name: "iimkl".into(),
+            version: "2025b".into(),
+        },
+        None,
+        &cands,
+    )
+    .unwrap();
+    assert_eq!(
+        iimkl_h.bare_tuple_labels(),
+        vec!["GCCcore-14.3.0", "intel-compilers-2025.2.0", "iimkl-2025b",]
+    );
+
+    let rompi_h = hierarchy_for_with_tree(
+        &Toolchain {
+            name: "rompi".into(),
+            version: "2025a".into(),
+        },
+        None,
+        &cands,
+    )
+    .unwrap();
+    assert_eq!(
+        rompi_h.bare_tuple_labels(),
+        vec![
+            "GCCcore-14.2.0",
+            "rocm-compilers-19.0.0-ROCm-6.4.1",
+            "rompi-2025a",
+        ]
+    );
+}
