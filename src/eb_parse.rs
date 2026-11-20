@@ -935,6 +935,15 @@ impl<'a> Parser<'a> {
                 self.pos += 1;
                 break;
             }
+            if positional.is_empty() && keywords.is_empty() {
+                let elem_at = self.pos;
+                if let Some(for_at) = self.comprehension_for(elem_at) {
+                    let gen = self.eval_comprehension(elem_at, for_at, b')')?;
+                    positional.push(gen);
+                    return call_method(&receiver, &name, &positional, &keywords)
+                        .map_err(|e| self.err(e));
+                }
+            }
             if let Some((key, value)) = self.parse_keyword_arg()? {
                 saw_keyword = true;
                 keywords.push((key, value));
@@ -1512,9 +1521,15 @@ impl<'a> Parser<'a> {
         prev_ok && next_ok
     }
 
-    /// `[expr for name in seq]`. The element is parsed once per item, after
-    /// the name is bound, because it refers to that name.
-    fn eval_list_comprehension(&mut self, elem_at: usize, for_at: usize) -> Result<Value, String> {
+    /// `[expr for name in seq]` or `(expr for name in seq)`. The element is
+    /// parsed once per item, after the name is bound, because it refers to that
+    /// name.
+    fn eval_comprehension(
+        &mut self,
+        elem_at: usize,
+        for_at: usize,
+        closer: u8,
+    ) -> Result<Value, String> {
         let depth = self.depth;
         self.pos = for_at;
         let kw = self.parse_ident()?;
@@ -1532,8 +1547,11 @@ impl<'a> Parser<'a> {
         if self.keyword_at(self.pos, "if") {
             return Err(self.err("a comprehension filter is not read"));
         }
-        if self.bump() != Some(b']') {
-            return Err(self.err("a comprehension is not closed by ']'"));
+        if self.bump() != Some(closer) {
+            return Err(self.err(format!(
+                "a comprehension is not closed by '{}'",
+                closer as char
+            )));
         }
         let end = self.pos;
         let items = match iterable {
@@ -1573,7 +1591,7 @@ impl<'a> Parser<'a> {
         if self.peek() != Some(b']') {
             let elem_at = self.pos;
             if let Some(for_at) = self.comprehension_for(elem_at) {
-                return self.eval_list_comprehension(elem_at, for_at);
+                return self.eval_comprehension(elem_at, for_at, b']');
             }
         }
         let mut items = Vec::new();
@@ -1616,6 +1634,10 @@ impl<'a> Parser<'a> {
             self.pos += 1;
             self.depth -= 1;
             return Ok(Value::Tuple(vec![]));
+        }
+        let elem_at = self.pos;
+        if let Some(for_at) = self.comprehension_for(elem_at) {
+            return self.eval_comprehension(elem_at, for_at, b')');
         }
         let first = self.parse_expr()?;
         self.skip_ws();
@@ -7574,5 +7596,71 @@ exts_list = [
         );
         let exts: Vec<&str> = parsed.exts_list.iter().map(|e| e.name.as_str()).collect();
         assert_eq!(exts, vec!["fastrlock", "cupy"]);
+    }
+
+    #[test]
+    fn generator_expressions_work_in_join_calls_and_parens() {
+        let alphapulldown = "\
+easyblock = 'PythonBundle'
+name = 'AlphaPulldown'
+version = '2.0.0'
+toolchain = {'name': 'foss', 'version': '2023a'}
+local_tests = ['custom_db', 'modelcif']
+local_testinstall_PATH = 'PATH=/tmp:$PATH'
+exts_list = [
+    ('contextlib2', '21.6.0', {}),
+    (name, version, {
+        'runtest': '%s pytest -s %s ' % (local_testinstall_PATH, ' '.join('test/test_%s.py' % x for x in local_tests)),
+    }),
+]
+";
+        let (ap, ap_skipped) =
+            resolve_easyconfig_str_reporting(alphapulldown).expect("AlphaPulldown");
+        assert!(
+            ap_skipped.is_empty(),
+            "AlphaPulldown skipped: {ap_skipped:?}"
+        );
+        assert_eq!(
+            ap.exts_list
+                .iter()
+                .map(|e| e.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["contextlib2", "AlphaPulldown"]
+        );
+
+        let jax_and_scib = "\
+easyblock = 'PythonBundle'
+name = 'scib-metrics'
+version = '0.5.9'
+toolchain = {'name': 'foss', 'version': '2024a'}
+_float64_tests_types = ['100-1000', '1000-100']
+_float64_tests_list = [
+    f'tests/utils/test_pca.py::test_pca[{x}]'
+    for x in _float64_tests_types
+]
+_float64_tests = ' '.join(x for x in _float64_tests_list)
+_deselected_tests = ' '.join(
+    f'--deselect {x}'
+    for x in _float64_tests_list
+)
+local_test_cmd = ' '.join((f'{item}!' for item in _float64_tests_types)) + ' && ' + _deselected_tests + ' && ' + _float64_tests
+exts_list = [
+    ('harmonypy', '0.1.0', {}),
+    (name, version, {'runtest': local_test_cmd}),
+]
+";
+        let (sm, sm_skipped) =
+            resolve_easyconfig_str_reporting(jax_and_scib).expect("scib-metrics");
+        assert!(
+            sm_skipped.is_empty(),
+            "scib-metrics skipped: {sm_skipped:?}"
+        );
+        assert_eq!(
+            sm.exts_list
+                .iter()
+                .map(|e| e.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["harmonypy", "scib-metrics"]
+        );
     }
 }
