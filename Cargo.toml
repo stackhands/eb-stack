@@ -66,6 +66,7 @@ exclude = [
     "fixtures/maintainer_rpath_26480/",
     "fixtures/maintainer_shell_stage/",
     "fixtures/multi_gen_baseline/",
+    "fixtures/parity_*/",
     "fixtures/parser_hardcases/",
     "fixtures/qmcpack_foss_2026_1/",
     "fixtures/stack_order_installed/",
