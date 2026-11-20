@@ -586,6 +586,10 @@ impl<'a> Parser<'a> {
         }
         let arg = self.parse_expr()?;
         self.skip_ws();
+        if self.peek() == Some(b',') {
+            self.pos += 1;
+            self.skip_ws();
+        }
         if self.bump() != Some(b')') {
             return Err(self.err(format!("expected ')' after {name}.append")));
         }
@@ -4220,17 +4224,19 @@ fn candidate_matches_dep_core(
     if c.name != dep.name {
         return false;
     }
-    // Match the EasyBuild install stem (versionprefix + bare version), so a
-    // dep of mpp-1.0 selects the prefixed Mol and a dep of 1.0 selects plain.
-    if !matches_req(
-        &c.install_version_stem(),
-        &version_field_to_req(&dep.version),
-    ) {
-        return false;
-    }
-    let want_vs = dep.versionsuffix.as_deref().unwrap_or("");
+    // Match the EasyBuild install stem (versionprefix + bare version), or
+    // stem + versionsuffix when the dependency carries an exact combined
+    // version string such as MCR R2019b.8 with no separate suffix tuple.
+    let req = version_field_to_req(&dep.version);
+    let stem = c.install_version_stem();
     let got_vs = c.versionsuffix.as_deref().unwrap_or("");
-    if want_vs != got_vs {
+    let want_vs = dep.versionsuffix.as_deref().unwrap_or("");
+    let stem_match = matches_req(&stem, &req) && want_vs == got_vs;
+    let combined_match = dep.versionsuffix.is_none()
+        && !got_vs.is_empty()
+        && crate::version::requirement_is_exact(&req)
+        && matches_req(&format!("{stem}{got_vs}"), &req);
+    if !stem_match && !combined_match {
         return false;
     }
     if let Some(tc) = &dep.toolchain {

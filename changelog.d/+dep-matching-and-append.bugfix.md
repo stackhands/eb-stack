@@ -1,0 +1,1 @@
+Match combined `version + versionsuffix` dependency pins in `candidate_matches_dep_for_recipe` when `dep.versionsuffix` is unset (such as `MCR/R2019b.8`), and accept trailing commas in `list.append(...)` statements.
