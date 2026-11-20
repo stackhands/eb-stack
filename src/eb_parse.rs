@@ -2271,8 +2271,45 @@ const DEP_VERSION_TEMPLATES: &[(&str, &str)] = &[
     ("Perl", "perl"),
 ];
 
-/// The `%(<prefix>ver)s` family, taken from what a recipe depends on.
-fn dependency_version_templates(deps: &[&[ResolvedDep]]) -> HashMap<String, String> {
+fn insert_prefixed_version_templates(tv: &mut HashMap<String, String>, prefix: &str, ver: &str) {
+    if ver.is_empty() || !ver.starts_with(|c: char| c.is_ascii_digit()) {
+        return;
+    }
+    let parts: Vec<&str> = ver.split('.').collect();
+    tv.insert(format!("{prefix}ver"), ver.to_string());
+    tv.insert(format!("{prefix}majver"), parts[0].to_string());
+    if parts.len() > 1 {
+        tv.insert(format!("{prefix}minver"), parts[1].to_string());
+        tv.insert(
+            format!("{prefix}shortver"),
+            format!("{}.{}", parts[0], parts[1]),
+        );
+    }
+}
+
+fn extract_cuda_version_from_label(label: &str) -> Option<&str> {
+    for tag in ["CUDA-", "CUDAcore-"] {
+        if let Some(idx) = label.find(tag) {
+            let rest = &label[idx + tag.len()..];
+            if rest.starts_with(|c: char| c.is_ascii_digit()) {
+                let end = rest.find('-').unwrap_or(rest.len());
+                let ver = &rest[..end];
+                if !ver.is_empty() {
+                    return Some(ver);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// The `%(<prefix>ver)s` family, taken from what a recipe depends on, with a
+/// fallback to a CUDA version named in the toolchain version or versionsuffix.
+fn dependency_version_templates(
+    deps: &[&[ResolvedDep]],
+    toolchain: &Toolchain,
+    versionsuffix: Option<&str>,
+) -> HashMap<String, String> {
     let mut tv = HashMap::new();
     for dep in deps.iter().flat_map(|list| list.iter()) {
         let Some((_, prefix)) = DEP_VERSION_TEMPLATES
@@ -2284,18 +2321,13 @@ fn dependency_version_templates(deps: &[&[ResolvedDep]]) -> HashMap<String, Stri
         // A version constraint is not a version: `>=3.11` names no single
         // number to substitute, and guessing one would be worse than leaving
         // the template visible.
-        if dep.version.is_empty() || !dep.version.starts_with(|c: char| c.is_ascii_digit()) {
-            continue;
-        }
-        let parts: Vec<&str> = dep.version.split('.').collect();
-        tv.insert(format!("{prefix}ver"), dep.version.clone());
-        tv.insert(format!("{prefix}majver"), parts[0].to_string());
-        if parts.len() > 1 {
-            tv.insert(format!("{prefix}minver"), parts[1].to_string());
-            tv.insert(
-                format!("{prefix}shortver"),
-                format!("{}.{}", parts[0], parts[1]),
-            );
+        insert_prefixed_version_templates(&mut tv, prefix, &dep.version);
+    }
+    if !tv.contains_key("cudaver") {
+        if let Some(ver) = extract_cuda_version_from_label(&toolchain.version)
+            .or_else(|| versionsuffix.and_then(extract_cuda_version_from_label))
+        {
+            insert_prefixed_version_templates(&mut tv, "cuda", ver);
         }
     }
     tv
@@ -2808,11 +2840,11 @@ fn resolve_easyconfig_str_inner(src: &str, arch: &str) -> Result<InnerResolved, 
             "missing toolchain = {'name': ..., 'version': ...} or SYSTEM".into(),
         )
     })?;
-    let toolchain = value_to_toolchain(toolchain_val, "toolchain")
+    let toolchain_raw = value_to_toolchain(toolchain_val, "toolchain")
         .map_err(|e| ParseError::Parse("<string>".into(), e))?;
 
     let vs_for_templates = versionsuffix_raw.clone().unwrap_or_default();
-    let mut templates = build_templates(&name, &version, &vs_for_templates, &toolchain, arch);
+    let mut templates = build_templates(&name, &version, &vs_for_templates, &toolchain_raw, arch);
     // The defaults in build_templates are what EasyBuild uses when the recipe
     // leaves the parameter unset. An assignment has to win, or GITHUB_SOURCE
     // points at the lowercased software name instead of the account the recipe
@@ -2824,6 +2856,10 @@ fn resolve_easyconfig_str_inner(src: &str, arch: &str) -> Result<InnerResolved, 
     let version = apply_templates_str(&version, &templates);
     let versionsuffix = versionsuffix_raw.map(|s| apply_templates_str(&s, &templates));
     let versionprefix = versionprefix_raw.map(|s| apply_templates_str(&s, &templates));
+    let toolchain = Toolchain {
+        name: apply_templates_str(&toolchain_raw.name, &templates),
+        version: apply_templates_str(&toolchain_raw.version, &templates),
+    };
     // Rebuild templates if name/version changed (rare for name/version themselves).
     let mut templates = build_templates(
         &name,
@@ -2885,11 +2921,16 @@ fn resolve_easyconfig_str_inner(src: &str, arch: &str) -> Result<InnerResolved, 
     // What a recipe depends on defines templates the recipe itself uses, so
     // the dependency list has to be read before those can be resolved. Only a
     // second pass, and only when the dependencies define something.
-    let dep_tv = dependency_version_templates(&[&dependencies, &builddependencies]);
-    let (mut templates, versionsuffix, versionprefix, dependencies, builddependencies) =
+    let dep_tv = dependency_version_templates(
+        &[&dependencies, &builddependencies],
+        &toolchain,
+        versionsuffix.as_deref(),
+    );
+    let (mut templates, toolchain, versionsuffix, versionprefix, dependencies, builddependencies) =
         if dep_tv.is_empty() {
             (
                 templates,
+                toolchain,
                 versionsuffix,
                 versionprefix,
                 dependencies,
@@ -2898,6 +2939,12 @@ fn resolve_easyconfig_str_inner(src: &str, arch: &str) -> Result<InnerResolved, 
         } else {
             let mut templates = templates;
             templates.extend(dep_tv);
+            let toolchain = Toolchain {
+                name: apply_templates_str(&toolchain.name, &templates),
+                version: apply_templates_str(&toolchain.version, &templates),
+            };
+            templates.insert("toolchain_name".into(), toolchain.name.clone());
+            templates.insert("toolchain_version".into(), toolchain.version.clone());
             let versionsuffix = versionsuffix.map(|s| apply_templates_str(&s, &templates));
             let versionprefix = versionprefix.map(|s| apply_templates_str(&s, &templates));
             let redo = |val: Option<&Value>| -> Result<Vec<ResolvedDep>, ParseError> {
@@ -2913,6 +2960,7 @@ fn resolve_easyconfig_str_inner(src: &str, arch: &str) -> Result<InnerResolved, 
             let builddependencies = redo(parser.env.get("builddependencies"))?;
             (
                 templates,
+                toolchain,
                 versionsuffix,
                 versionprefix,
                 dependencies,

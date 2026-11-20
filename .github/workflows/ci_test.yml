@@ -189,6 +189,7 @@ jobs:
             --test cli_ergonomics \
             --test cli_reference \
             --test cuda_cc \
+            --test cuda_toolchain_templates \
             --test component_reach \
             --test doc_walkthrough \
             --test eb_robot_paths \
