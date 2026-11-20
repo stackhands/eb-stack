@@ -1,6 +1,6 @@
 use eb_stack::{hierarchy_for_with_tree, parse_easyconfig_tree, solve_from_easyconfigs, Toolchain};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 fn write_eb(root: &Path, rel: &str, body: &str) {
     let path = root.join(rel);
@@ -232,5 +232,38 @@ fn gfbf_hierarchy_excludes_gompi() {
     assert_eq!(
         gfbf_h.member_labels(),
         vec!["system", "GCCcore-14.3.0", "GCC-14.3.0", "gfbf-2025b"]
+    );
+}
+
+#[test]
+fn real_foss_2022a_sibling_order_matches_framework_subtoolchain() {
+    let fixture_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("fixtures")
+        .join("parity_foss_subtoolchain");
+    let ec_root = fixture_dir.join("easyconfigs");
+    let fw_root = fixture_dir.join("framework");
+
+    let foss_py = fs::read_to_string(fw_root.join("easybuild/toolchains/foss.py")).unwrap();
+    assert!(foss_py.contains("SUBTOOLCHAIN = [Gompi.NAME, Golf.NAME, Gfbf.NAME]"));
+
+    let cands = parse_easyconfig_tree(&ec_root).unwrap().candidates;
+    let h = hierarchy_for_with_tree(
+        &Toolchain {
+            name: "foss".into(),
+            version: "2022a".into(),
+        },
+        None,
+        &cands,
+    )
+    .unwrap();
+    assert_eq!(
+        h.bare_tuple_labels(),
+        vec![
+            "GCCcore-11.3.0",
+            "GCC-11.3.0",
+            "gfbf-2022a",
+            "gompi-2022a",
+            "foss-2022a",
+        ]
     );
 }

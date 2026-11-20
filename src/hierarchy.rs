@@ -589,7 +589,7 @@ pub fn known_hierarchy(parent: &Toolchain) -> Option<ToolchainHierarchy> {
 /// a brand-new `foss-2026.1` must not require shipping a new fixture).
 ///
 /// Members mirror EasyBuild's `get_toolchain_hierarchy` order for foss-family
-/// generations: `system < GCCcore < GCC < gompi < gfbf < parent`. A bare
+/// generations: `system < GCCcore < GCC < gfbf < gompi < parent`. A bare
 /// dependency tuple does not reach `system`; recipe check omits it from
 /// the member list and, when the candidate is a SYSTEM recipe, says to
 /// write `('Name', 'version', '', SYSTEM)`. Intermediate
@@ -741,7 +741,7 @@ pub fn derive_hierarchy_from_candidates(
     parent: &Toolchain,
     cands: &[Candidate],
 ) -> Option<ToolchainHierarchy> {
-    const COMPOSITES: [&str; 3] = ["gompi", "gfbf", "foss"];
+    const COMPOSITES: [&str; 3] = ["gfbf", "gompi", "foss"];
     if NVIDIA_COMPOSITES.contains(&parent.name.as_str()) {
         // NVHPC-family composite (NVHPC, nvompi, nvofbf): a different chain
         // from the GCC family, walked in its own function.
@@ -822,8 +822,8 @@ pub fn derive_hierarchy_from_candidates(
     })
 }
 
-/// NVHPC-family composites, lowest rank first, mirroring the GCC family's
-/// `gompi < gfbf < foss`. `nvompi` is NVHPC + OpenMPI; `nvofbf` adds FlexiBLAS,
+/// NVHPC-family composites, lowest rank first, mirroring EasyBuild's `SUBTOOLCHAIN`
+/// precedence (`nvompi < nvofbf`). `nvompi` is NVHPC + OpenMPI; `nvofbf` adds FlexiBLAS,
 /// FFTW and ScaLAPACK on top.
 /// Whether `version` names the same release as `spelled`, allowing `spelled` to
 /// carry a versionsuffix the candidate states separately.
@@ -2030,8 +2030,8 @@ mod tests {
                 "system",
                 "GCCcore-15.2.0",
                 "GCC-15.2.0",
-                "gompi-2099a",
                 "gfbf-2099a",
+                "gompi-2099a",
                 "foss-2099a",
             ]
         );
