@@ -2605,18 +2605,49 @@ fn value_to_dep(val: &Value, arch: &str) -> Result<ResolvedDep, String> {
 /// Column zero and an `=` that is not `==`, which is what a top-level
 /// easyconfig assignment looks like. Augmented assignment counts: a recipe
 /// that appends to a dependency list still has one.
-fn assigns_at_top_level(src: &str, field: &str) -> bool {
-    src.lines().any(|line| {
-        let Some(rest) = line.strip_prefix(field) else {
-            return false;
-        };
-        let rest = rest.trim_start();
-        match rest.as_bytes() {
-            [b'=', b'=', ..] => false,
-            [b'=', ..] => true,
-            [b'+', b'=', ..] => true,
-            _ => false,
+const ALTERNATIVE_PARAM_NAMES: &[(&str, &str)] = &[
+    ("build_deps", "builddependencies"),
+    ("configure_opts", "configopts"),
+    ("deps", "dependencies"),
+    ("env_mod_category", "moduleclass"),
+    ("exts_class_map", "exts_classmap"),
+    ("exts_default_class", "exts_defaultclass"),
+    ("exts_default_opts", "exts_default_options"),
+    ("hidden_deps", "hiddendependencies"),
+    ("version_prefix", "versionprefix"),
+    ("version_suffix", "versionsuffix"),
+];
+
+fn normalize_alternative_param_names(env: &mut HashMap<String, Value>) {
+    for &(alt, canonical) in ALTERNATIVE_PARAM_NAMES {
+        if !env.contains_key(canonical) {
+            if let Some(value) = env.get(alt).cloned() {
+                env.insert(canonical.to_string(), value);
+            }
         }
+    }
+}
+
+fn assigns_at_top_level(src: &str, field: &str) -> bool {
+    let mut names = vec![field];
+    for &(alt, canonical) in ALTERNATIVE_PARAM_NAMES {
+        if canonical == field {
+            names.push(alt);
+        }
+    }
+    src.lines().any(|line| {
+        names.iter().any(|name| {
+            let Some(rest) = line.strip_prefix(name) else {
+                return false;
+            };
+            let rest = rest.trim_start();
+            match rest.as_bytes() {
+                [b'=', b'=', ..] => false,
+                [b'=', ..] => true,
+                [b'+', b'=', ..] => true,
+                _ => false,
+            }
+        })
     })
 }
 
@@ -2909,6 +2940,7 @@ fn resolve_easyconfig_str_inner(src: &str, arch: &str) -> Result<InnerResolved, 
     parser
         .parse_file()
         .map_err(|e| ParseError::Parse("<string>".into(), e))?;
+    normalize_alternative_param_names(&mut parser.env);
 
     let name = parser
         .env
@@ -7662,5 +7694,31 @@ exts_list = [
                 .collect::<Vec<_>>(),
             vec!["harmonypy", "scib-metrics"]
         );
+    }
+
+    #[test]
+    fn alternative_easyconfig_parameter_names_populate_canonical_fields() {
+        let src = "\
+easyblock = 'Bundle'
+name = 'R-crumble'
+version = '0.1.2'
+version_suffix = '-R-%(rver)s'
+version_prefix = 'alt-'
+toolchain = {'name': 'foss', 'version': '2023b'}
+deps = [('R', '4.4.1')]
+build_deps = [('CMake', '3.27.6')]
+configure_opts = '--with-pic'
+env_mod_category = 'tools'
+";
+        let (parsed, skipped) = resolve_easyconfig_str_reporting(src).expect("parse");
+        assert!(skipped.is_empty(), "unexpected skipped: {skipped:?}");
+        assert_eq!(parsed.versionsuffix.as_deref(), Some("-R-4.4.1"));
+        assert_eq!(parsed.versionprefix.as_deref(), Some("alt-"));
+        assert_eq!(parsed.dependencies.len(), 1);
+        assert_eq!(parsed.dependencies[0].name, "R");
+        assert_eq!(parsed.builddependencies.len(), 1);
+        assert_eq!(parsed.builddependencies[0].name, "CMake");
+        assert_eq!(parsed.configopts.as_deref(), Some("--with-pic"));
+        assert_eq!(parsed.moduleclass.as_deref(), Some("tools"));
     }
 }
