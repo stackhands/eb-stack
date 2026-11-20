@@ -96,13 +96,18 @@ fn paths_by_ref(lock: &serde_json::Value) -> BTreeMap<String, String> {
         .unwrap()
         .iter()
         .map(|p| {
+            let mut reference = format!(
+                "pkg:generic/{}@{}?toolchain={}",
+                p["name"].as_str().unwrap(),
+                p["version"].as_str().unwrap(),
+                toolchain_label(&p["toolchain"])
+            );
+            if let Some(vs) = p["versionsuffix"].as_str().filter(|s| !s.is_empty()) {
+                reference.push_str("&versionsuffix=");
+                reference.push_str(vs);
+            }
             (
-                format!(
-                    "pkg:generic/{}@{}?toolchain={}",
-                    p["name"].as_str().unwrap(),
-                    p["version"].as_str().unwrap(),
-                    toolchain_label(&p["toolchain"])
-                ),
+                reference,
                 p["easyconfig_path"].as_str().unwrap().to_string(),
             )
         })

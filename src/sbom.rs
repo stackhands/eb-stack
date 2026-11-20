@@ -33,8 +33,32 @@ use std::convert::TryFrom;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
-fn bom_ref(name: &str, version: &str, toolchain_label: &str) -> String {
-    format!("pkg:generic/{name}@{version}?toolchain={toolchain_label}")
+fn encode_purl_qualifier(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
+            out.push(byte as char);
+        } else {
+            use std::fmt::Write;
+            let _ = write!(out, "%{byte:02X}");
+        }
+    }
+    out
+}
+
+fn bom_ref(
+    name: &str,
+    version: &str,
+    versionsuffix: Option<&str>,
+    toolchain_label: &str,
+) -> String {
+    match versionsuffix.filter(|s| !s.is_empty()) {
+        Some(suffix) => format!(
+            "pkg:generic/{name}@{version}?toolchain={toolchain_label}&versionsuffix={}",
+            encode_purl_qualifier(suffix)
+        ),
+        None => format!("pkg:generic/{name}@{version}?toolchain={toolchain_label}"),
+    }
 }
 
 /// Separates the four lock-identity fields. Names, versions and suffixes do
@@ -255,7 +279,12 @@ pub fn lock_to_bom_with_facts(lock: &StackLock, facts: SbomFacts<'_>) -> Bom {
     for p in &lock.packages {
         // Each module is built with its own toolchain (GCCcore, gompi, system,
         // ...), not the stack's policy toolchain; its identity says which.
-        let r = bom_ref(&p.name, &p.version, &p.toolchain.label());
+        let r = bom_ref(
+            &p.name,
+            &p.version,
+            p.versionsuffix.as_deref(),
+            &p.toolchain.label(),
+        );
         package_refs.insert(package_identity(p), r);
     }
     let mut components: Vec<Component> = Vec::new();
