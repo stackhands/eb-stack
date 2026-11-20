@@ -826,7 +826,34 @@ impl<'a> Parser<'a> {
         if self.bump() != Some(b'=') {
             return Err(self.err("expected '=' in an unpacking assignment"));
         }
-        let value = self.parse_expr()?;
+        let first_val = self.parse_expr()?;
+        let before_ws = self.pos;
+        self.skip_ws();
+        let crossed_line = self.src[before_ws..self.pos].contains(&b'\n');
+        let value = if !crossed_line && self.peek() == Some(b',') {
+            let mut items = vec![first_val];
+            while self.peek() == Some(b',') {
+                self.pos += 1;
+                let before_next = self.pos;
+                self.skip_ws();
+                let next_crossed = self.src[before_next..self.pos].contains(&b'\n');
+                if next_crossed || matches!(self.peek(), None | Some(b';')) {
+                    self.pos = before_next;
+                    break;
+                }
+                items.push(self.parse_expr()?);
+                let after_ws = self.pos;
+                self.skip_ws();
+                if self.src[after_ws..self.pos].contains(&b'\n') {
+                    self.pos = after_ws;
+                    break;
+                }
+            }
+            Value::Tuple(items)
+        } else {
+            self.pos = before_ws;
+            first_val
+        };
         let items = match value {
             Value::List(items) | Value::Tuple(items) => items,
             other => {
@@ -7523,5 +7550,29 @@ mod hierarchy_universe_tests {
         let kept = filter_toolchain_hierarchy(&all, &gcc, &[]);
         assert_eq!(kept.len(), 1);
         assert_eq!(kept[0].name, "FlexiBLAS");
+    }
+
+    #[test]
+    fn unpacking_accepts_unparenthesized_tuple_rhs() {
+        let src = "\
+easyblock = 'PythonBundle'
+name = 'CuPy'
+version = '13.6.0'
+toolchain = {'name': 'foss', 'version': '2024a'}
+_parallel_tests, _test_type = 1, 'fast'
+exts_list = [
+    ('fastrlock', '0.8.3', {}),
+    ('cupy', version, {
+        'runtest': 'pytest -n %s tests -k \"%s\"' % (_parallel_tests, _test_type),
+    }),
+]
+";
+        let (parsed, skipped) = resolve_easyconfig_str_reporting(src).expect("parse CuPy");
+        assert!(
+            skipped.is_empty(),
+            "unexpected skipped statements: {skipped:?}"
+        );
+        let exts: Vec<&str> = parsed.exts_list.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(exts, vec!["fastrlock", "cupy"]);
     }
 }
