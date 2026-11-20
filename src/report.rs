@@ -61,7 +61,7 @@ pub fn provides(provided: &StackLock, p: &LockPackage) -> bool {
     provided.packages.iter().any(|q| {
         q.name == p.name
             && q.version == p.version
-            && q.toolchain.label() == p.toolchain.label()
+            && crate::hierarchy::toolchains_match(&q.toolchain, &p.toolchain)
             && q.versionsuffix.as_deref().unwrap_or("") == p.versionsuffix.as_deref().unwrap_or("")
     })
 }
@@ -257,7 +257,7 @@ pub fn classify_stack_diff(baseline: &StackLock, solved: &StackLock) -> Vec<Pack
     }
     fn same_module(a: &LockPackage, b: &LockPackage) -> bool {
         a.version == b.version
-            && a.toolchain.label() == b.toolchain.label()
+            && crate::hierarchy::toolchains_match(&a.toolchain, &b.toolchain)
             && a.versionsuffix.as_deref().unwrap_or("") == b.versionsuffix.as_deref().unwrap_or("")
     }
     fn row(name: &str, b: Option<&LockPackage>, s: Option<&LockPackage>) -> PackageChange {
@@ -622,5 +622,86 @@ mod tests {
                 (Some("12.9.1".into()), PackageChangeKind::Added),
             ]
         );
+    }
+
+    #[test]
+    fn provides_matches_normalized_system_toolchains() {
+        let spellings = [
+            tc("system", ""),
+            tc("dummy", "dummy"),
+            tc("system", "system"),
+        ];
+        let mk = |toolchain: Toolchain| LockPackage {
+            name: "Java".into(),
+            version: "21".into(),
+            toolchain,
+            versionsuffix: None,
+            easyconfig_path: "Java-21.eb".into(),
+        };
+        for a in &spellings {
+            let provided = lock_of(vec![mk(a.clone())]);
+            for b in &spellings {
+                let candidate = mk(b.clone());
+                assert!(
+                    provides(&provided, &candidate),
+                    "expected provides to match {} against {}",
+                    a.label(),
+                    b.label()
+                );
+            }
+            let non_system = mk(tc("foss", "2025b"));
+            assert!(
+                !provides(&provided, &non_system),
+                "non-system toolchain must not match {}",
+                a.label()
+            );
+        }
+
+        let provided_legacy = lock_of(vec![mk(tc("system", ""))]);
+        let solved_modern = lock_of(vec![mk(tc("system", "system"))]);
+        assert_eq!(
+            format_build_list_excluding(&solved_modern, &HashMap::new(), &provided_legacy),
+            ""
+        );
+    }
+
+    #[test]
+    fn classify_stack_diff_matches_normalized_system_toolchains() {
+        let spellings = [
+            tc("system", ""),
+            tc("dummy", "dummy"),
+            tc("system", "system"),
+        ];
+        let mk = |ver: &str, toolchain: Toolchain| LockPackage {
+            name: "CUDA".into(),
+            version: ver.into(),
+            toolchain,
+            versionsuffix: None,
+            easyconfig_path: format!("CUDA-{ver}.eb"),
+        };
+        for base_tc in &spellings {
+            for sol_tc in &spellings {
+                let baseline = lock_of(vec![mk("13.3.0", base_tc.clone())]);
+                let solved = lock_of(vec![
+                    mk("12.9.1", sol_tc.clone()),
+                    mk("13.3.0", sol_tc.clone()),
+                ]);
+                let rows = classify_stack_diff(&baseline, &solved);
+                let kinds: Vec<(Option<String>, PackageChangeKind)> = rows
+                    .into_iter()
+                    .map(|r| (r.solved_version, r.kind))
+                    .collect();
+                assert_eq!(
+                    kinds,
+                    [
+                        (Some("13.3.0".into()), PackageChangeKind::Unchanged),
+                        (Some("12.9.1".into()), PackageChangeKind::Added),
+                    ],
+                    "base={} solved={}",
+                    base_tc.label(),
+                    sol_tc.label()
+                );
+            }
+        }
     }
 }
