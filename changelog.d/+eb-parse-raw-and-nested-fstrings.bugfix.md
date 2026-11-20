@@ -1,0 +1,1 @@
+Easyconfig expression parsing handles raw string literals (`r'...'`) and raw f-strings (`rf'...'` and `fr'...'`) without unescaping backslashes, and balances nested braces and quoted strings inside f-string fields so inline dict lookups and quoted braces parse cleanly.

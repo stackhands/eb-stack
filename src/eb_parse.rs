@@ -1029,7 +1029,7 @@ impl<'a> Parser<'a> {
             // joining across a newline there would swallow the next statement.
             let join_strings = matches!(left, Value::Str(_))
                 && (self.depth > 0 || !crossed_line)
-                && (matches!(self.peek(), Some(b'\'' | b'"')) || self.starts_fstring());
+                && self.string_prefix().is_some();
             if join_strings {
                 let right = self.parse_postfix()?;
                 left = match (left, right) {
@@ -1115,9 +1115,17 @@ impl<'a> Parser<'a> {
         let Some(c) = self.peek() else {
             return Err(self.err("expected expression, got EOF"));
         };
+        if let Some((prefix_len, is_f, is_r)) = self.string_prefix() {
+            return if is_f {
+                self.parse_fstring()
+            } else if is_r {
+                self.pos += prefix_len;
+                self.parse_raw_string()
+            } else {
+                self.parse_string()
+            };
+        }
         match c {
-            b'f' | b'F' if self.starts_fstring() => self.parse_fstring(),
-            b'\'' | b'"' => self.parse_string(),
             b'[' => self.parse_list(),
             b'(' => self.parse_tuple_or_group(),
             b'{' => self.parse_dict(),
@@ -1178,6 +1186,54 @@ impl<'a> Parser<'a> {
         Err(self.err("unterminated string"))
     }
 
+    /// Parse a Python raw string literal without interpreting backslash escapes.
+    fn parse_raw_string(&mut self) -> Result<Value, String> {
+        self.skip_ws();
+        let quote = self.bump().ok_or_else(|| self.err("expected string"))?;
+        if self.peek() == Some(quote) && self.src.get(self.pos + 1) == Some(&quote) {
+            self.pos += 2;
+            let start = self.pos;
+            while self.pos + 2 < self.src.len() {
+                if self.src[self.pos] == b'\\' {
+                    self.pos += 2;
+                    continue;
+                }
+                if self.src[self.pos] == quote
+                    && self.src[self.pos + 1] == quote
+                    && self.src[self.pos + 2] == quote
+                {
+                    let s = std::str::from_utf8(&self.src[start..self.pos])
+                        .map_err(|e| self.err(e.to_string()))?
+                        .to_string();
+                    self.pos += 3;
+                    return Ok(Value::Str(s));
+                }
+                self.pos += 1;
+            }
+            return Err(self.err("unterminated triple-quoted string"));
+        }
+        let start = self.pos;
+        while self.pos < self.src.len() {
+            let c = self.src[self.pos];
+            if c == quote {
+                let s = std::str::from_utf8(&self.src[start..self.pos])
+                    .map_err(|e| self.err(e.to_string()))?
+                    .to_string();
+                self.pos += 1;
+                return Ok(Value::Str(s));
+            }
+            if c == b'\\' {
+                if self.pos + 1 >= self.src.len() {
+                    return Err(self.err("unterminated string escape"));
+                }
+                self.pos += 2;
+            } else {
+                self.pos += 1;
+            }
+        }
+        Err(self.err("unterminated string"))
+    }
+
     /// Evaluate a fragment of source in this parser's own environment.
     ///
     /// Used for the inside of an f-string field, which is an expression like
@@ -1197,28 +1253,56 @@ impl<'a> Parser<'a> {
         sub.parse_expr()
     }
 
-    /// Whether what follows is an f-string rather than a name beginning with f.
-    fn starts_fstring(&self) -> bool {
-        let mut at = self.pos;
-        // Accept fr'' and rf'' as well, which a recipe writes for a path.
-        while matches!(self.src.get(at), Some(b'f' | b'F' | b'r' | b'R')) && at < self.pos + 2 {
-            at += 1;
+    /// Recognize a bare, raw, formatted, or raw-formatted string prefix.
+    ///
+    /// Returns `(prefix_len, is_fstring, is_raw)` when a quote follows.
+    fn string_prefix(&self) -> Option<(usize, bool, bool)> {
+        let quote = |idx: usize| matches!(self.src.get(idx), Some(b'\'' | b'"'));
+        match self.src.get(self.pos) {
+            Some(b'\'' | b'"') => Some((0, false, false)),
+            Some(b'r' | b'R') => {
+                if quote(self.pos + 1) {
+                    Some((1, false, true))
+                } else if matches!(self.src.get(self.pos + 1), Some(b'f' | b'F'))
+                    && quote(self.pos + 2)
+                {
+                    Some((2, true, true))
+                } else {
+                    None
+                }
+            }
+            Some(b'f' | b'F') => {
+                if quote(self.pos + 1) {
+                    Some((1, true, false))
+                } else if matches!(self.src.get(self.pos + 1), Some(b'r' | b'R'))
+                    && quote(self.pos + 2)
+                {
+                    Some((2, true, true))
+                } else {
+                    None
+                }
+            }
+            _ => None,
         }
-        at > self.pos && matches!(self.src.get(at), Some(b'\'' | b'"'))
     }
 
-    /// An f-string, with `{name}` filled from what the file has defined.
+    /// An f-string, with `{expr}` filled from what the file has defined.
     ///
     /// 221 recipes use one and 47 put it in a field that decides identity or
     /// dependencies, so a parser that stops at the `f` reads those as having
-    /// no version at all. Only a bare name is substituted: a format spec or a
-    /// conversion is an error rather than a guess, because a silently
-    /// mis-rendered version is worse than a recipe that is skipped.
+    /// no version at all. A format spec or a conversion is an error rather
+    /// than a guess, because a silently mis-rendered version is worse than a
+    /// recipe that is skipped.
     fn parse_fstring(&mut self) -> Result<Value, String> {
-        while matches!(self.peek(), Some(b'f' | b'F' | b'r' | b'R')) {
-            self.pos += 1;
-        }
-        let Value::Str(raw) = self.parse_string()? else {
+        let (prefix_len, _, is_raw) = self
+            .string_prefix()
+            .ok_or_else(|| self.err("expected f-string"))?;
+        self.pos += prefix_len;
+        let Value::Str(raw) = (if is_raw {
+            self.parse_raw_string()?
+        } else {
+            self.parse_string()?
+        }) else {
             return Err(self.err("f-string body is not a string"));
         };
         let mut out = String::new();
@@ -1236,7 +1320,7 @@ impl<'a> Parser<'a> {
             if opener == "}" {
                 return Err(self.err("unmatched } in f-string"));
             }
-            let Some(end) = tail.find('}') else {
+            let Some(end) = find_fstring_field_end(tail) else {
                 return Err(self.err("unterminated { in f-string"));
             };
             let expr = tail[1..end].trim();
@@ -1759,16 +1843,55 @@ fn dict_method(entries: &[(String, Value)], name: &str, args: &[Value]) -> Resul
     }
 }
 
-/// Whether `{field}` carries a conversion or a format spec at bracket depth 0.
+/// Find the matching `}` for an f-string field starting at index 0 of `tail`.
+///
+/// Tracks nested braces and quoted strings so dict literals and string
+/// arguments containing `}` do not terminate the field early.
+fn find_fstring_field_end(tail: &str) -> Option<usize> {
+    let mut depth = 0usize;
+    let mut quote: Option<char> = None;
+    let mut escape = false;
+    for (idx, c) in tail.char_indices().skip(1) {
+        if let Some(q) = quote {
+            if escape {
+                escape = false;
+            } else if c == '\\' {
+                escape = true;
+            } else if c == q {
+                quote = None;
+            }
+            continue;
+        }
+        match c {
+            '\'' | '"' => quote = Some(c),
+            '{' => depth += 1,
+            '}' => {
+                if depth == 0 {
+                    return Some(idx);
+                }
+                depth -= 1;
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Whether an f-string field carries a `!conversion` or `:format_spec`.
 ///
 /// `{local_hash[:8]}` is a slice. `{value:.2f}` and `{value!s}` would change
 /// the text, and guessing at either would put a wrong value in a field.
 fn field_has_format_spec(field: &str) -> bool {
     let mut depth = 0i32;
     let mut quote: Option<char> = None;
+    let mut escape = false;
     for c in field.chars() {
         if let Some(q) = quote {
-            if c == q {
+            if escape {
+                escape = false;
+            } else if c == '\\' {
+                escape = true;
+            } else if c == q {
                 quote = None;
             }
             continue;
@@ -5260,6 +5383,61 @@ dependencies = [('Java', '21', '', SYSTEM)]\nmoduleclass = 'devel'\n";
         let parsed = resolve_easyconfig_str(rdkit).expect("RDKit f-strings");
         assert_eq!(parsed.source_files[0].filename, "Release_2026_03_4.tar.gz");
         assert_eq!(parsed.source_files[1].filename, "INCHI-1-SRC.zip");
+    }
+
+    #[test]
+    fn raw_strings_and_rf_fstrings_preserve_backslashes_and_parse() {
+        let rf_src = "name = 'Demo'\nversion = '1.2'\n\
+                      toolchain = {'name': 'foss', 'version': '2026.1'}\n\
+                      local_raw = r'{not_interpolated}\\n'\n\
+                      local_rf = rf'prefix-{version}\\n'\n\
+                      local_esc = r'a\\'b'\n\
+                      sources = [rf'demo-{version}.tar.gz', r'raw-' 'pkg.tar.gz']\n";
+        let mut parser = Parser::new(rf_src, "x86_64");
+        parser.parse_file().expect("parse rf and raw strings");
+        assert!(
+            parser.skipped.is_empty(),
+            "rf/raw statements should not be skipped: {:?}",
+            parser.skipped
+        );
+        assert_eq!(
+            parser.env.get("local_raw").and_then(Value::as_str),
+            Some(r"{not_interpolated}\n")
+        );
+        assert_eq!(
+            parser.env.get("local_rf").and_then(Value::as_str),
+            Some(r"prefix-1.2\n")
+        );
+        assert_eq!(
+            parser.env.get("local_esc").and_then(Value::as_str),
+            Some(r"a\'b")
+        );
+        let parsed = resolve_easyconfig_str(rf_src).expect("resolve rf and raw sources");
+        assert_eq!(parsed.source_files.len(), 2);
+        assert_eq!(parsed.source_files[0].filename, "demo-1.2.tar.gz");
+        assert_eq!(parsed.source_files[1].filename, "raw-pkg.tar.gz");
+    }
+
+    #[test]
+    fn fstring_fields_support_nested_dicts_and_quoted_braces() {
+        let nested_dict = "name = 'Demo'\nversion = '1.0'\n\
+                           toolchain = SYSTEM\n\
+                           sources = [f\"demo-{ {'x86_64': 'amd64', 'aarch64': 'arm64'}[ARCH] }.tar.gz\"]\n";
+        let x86 = resolve_easyconfig_str_for_arch(nested_dict, "x86_64")
+            .expect("nested dict in f-string on x86_64");
+        assert_eq!(x86.source_files.len(), 1);
+        assert_eq!(x86.source_files[0].filename, "demo-amd64.tar.gz");
+        let arm = resolve_easyconfig_str_for_arch(nested_dict, "aarch64")
+            .expect("nested dict in f-string on aarch64");
+        assert_eq!(arm.source_files.len(), 1);
+        assert_eq!(arm.source_files[0].filename, "demo-arm64.tar.gz");
+
+        let quoted_brace = "name = 'Demo'\nversion = '1.0'\n\
+                            toolchain = SYSTEM\n\
+                            sources = [f\"demo-{version.replace('.', '}')}.tar.gz\"]\n";
+        let parsed = resolve_easyconfig_str(quoted_brace).expect("quoted } in f-string");
+        assert_eq!(parsed.source_files.len(), 1);
+        assert_eq!(parsed.source_files[0].filename, "demo-1}0.tar.gz");
     }
 
     /// EvidentialGene indexes a month table with `int()`. Geant4 and PovChem
