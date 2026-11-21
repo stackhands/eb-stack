@@ -4509,15 +4509,10 @@ fn candidate_matches_dep_core(
     if let Some(tc) = &dep.toolchain {
         return crate::hierarchy::toolchains_match(&c.toolchain, tc);
     }
-    if full_module_match && module_ver != stem {
-        return true;
-    }
     // Implicit dependencies minimize within the generation, but do not fall
     // through to SYSTEM unless the recipe itself uses SYSTEM.
     if let Some(h) = hierarchy {
-        return h.contains(&c.toolchain)
-            && (crate::hierarchy::is_system_toolchain(&h.parent)
-                || !crate::hierarchy::is_system_toolchain(&c.toolchain));
+        return h.admits_bare_dependency_candidate(&c.toolchain);
     }
     true
 }

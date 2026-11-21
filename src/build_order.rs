@@ -540,8 +540,10 @@ fn within_generation<'a>(
     all: &[Candidate],
     dep: &DepReq,
 ) -> Vec<&'a Candidate> {
-    if dep.toolchain.is_none() && !crate::hierarchy::is_system_toolchain(&recipe.toolchain) {
-        admissible.retain(|candidate| !crate::hierarchy::is_system_toolchain(&candidate.toolchain));
+    if dep.toolchain.is_none() {
+        admissible.retain(|candidate| {
+            crate::hierarchy::bare_dependency_allows_system(&recipe.toolchain, &candidate.toolchain)
+        });
     }
     let Some(best) = admissible.iter().map(|c| distance(c, recipe, all)).min() else {
         return admissible;

@@ -493,6 +493,22 @@ impl ToolchainHierarchy {
     pub fn contains(&self, tc: &Toolchain) -> bool {
         self.members.iter().any(|m| toolchains_match(m, tc))
     }
+
+    /// Whether a bare dependency tuple may select `candidate`.
+    ///
+    /// A non-SYSTEM recipe searches its own generation but does not fall
+    /// through to SYSTEM. A SYSTEM recipe may select SYSTEM.
+    pub fn admits_bare_dependency_candidate(&self, candidate: &Toolchain) -> bool {
+        self.contains(candidate) && bare_dependency_allows_system(&self.parent, candidate)
+    }
+}
+
+/// Whether a bare dependency may select `candidate` based on SYSTEM status.
+///
+/// Hierarchy membership remains the caller's responsibility: some callers
+/// select a hierarchy level separately by distance.
+pub fn bare_dependency_allows_system(parent: &Toolchain, candidate: &Toolchain) -> bool {
+    is_system_toolchain(parent) || !is_system_toolchain(candidate)
 }
 
 /// EasyBuild / parser SYSTEM toolchains: name `system` (any case), version empty or `system`.
