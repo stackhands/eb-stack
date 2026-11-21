@@ -1,0 +1,6 @@
+name = 'HookInstalled'
+version = '1.0'
+homepage = 'https://example.org/'
+description = 'Its easyblock needs an installation unless --module-only --force'
+toolchain = SYSTEM
+moduleclass = 'tools'

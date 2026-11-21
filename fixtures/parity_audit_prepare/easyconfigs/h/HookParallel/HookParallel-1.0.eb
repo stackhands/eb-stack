@@ -1,0 +1,6 @@
+name = 'HookParallel'
+version = '1.0'
+homepage = 'https://example.org/'
+description = 'Its easyblock records the build parallelism in its module'
+toolchain = SYSTEM
+moduleclass = 'tools'

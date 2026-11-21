@@ -1,0 +1,14 @@
+# Exact EasyBuild pins for the parity audit, with artifact hashes.
+# tests/parity_audit_script.rs and the parity-corpus CI job install it into
+# virtual environments of their own, after
+# scripts/easybuild-build-requirements.txt:
+#
+#   pip install --require-hashes --only-binary :all: -r scripts/easybuild-build-requirements.txt
+#   pip install --require-hashes --no-build-isolation -r scripts/easybuild-requirements.txt
+#
+# Neither package declares a runtime dependency; --require-hashes refuses
+# one that appears without a pin here.
+easybuild-framework==5.4.2 \
+    --hash=sha256:284fe46e92defef7dd8827082064285a806a767f6fd3322bfe26c859afbb730f
+easybuild-easyblocks==5.4.2 \
+    --hash=sha256:6af03a367baa46dfcf9378cf6dc40c545c79985484177313cfe81627d33aa6de

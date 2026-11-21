@@ -1,0 +1,1 @@
+Parity audits report a dependency whose toolchain is empty and a dependency only eb-stack resolves, instead of skipping them, and a real EasyBuild run covers a GCCcore dependency and an empty toolchain.

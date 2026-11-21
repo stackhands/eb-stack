@@ -1,0 +1,1 @@
+Every `recipe parity-audit` dependency record now carries an `external_module` marker, and the parity comparator requires it. An external module that eb-stack resolves to an in-tree build is reported instead of matched by identity.

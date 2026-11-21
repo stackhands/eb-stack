@@ -1106,6 +1106,16 @@ enum RecipeCommand {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Hidden helper: export parsed recipe metadata and nearest-hierarchy deps as JSON.
+    #[command(hide = true)]
+    ParityAudit {
+        /// Easyconfig tree root.
+        #[arg(long)]
+        easyconfigs: PathBuf,
+        /// Optional file of newline-separated recipe paths (relative to `--easyconfigs` or absolute).
+        #[arg(long)]
+        recipes_file: Option<PathBuf>,
+    },
 }
 
 #[derive(clap::Args, Debug)]
@@ -3451,6 +3461,109 @@ fn run_recipe(command: RecipeCommand) -> Result<()> {
                     );
                 }
             }
+            Ok(())
+        }
+        RecipeCommand::ParityAudit {
+            easyconfigs,
+            recipes_file,
+        } => {
+            let tree = parse_easyconfig_trees(&[easyconfigs.as_path()])
+                .map_err(|error| anyhow::Error::msg(error).context("--easyconfigs"))?;
+            let canon_root =
+                std::fs::canonicalize(&easyconfigs).unwrap_or_else(|_| easyconfigs.clone());
+            let index = eb_stack::build_order::ParityTreeIndex::new(&tree.candidates);
+            let mut by_canon = std::collections::HashMap::new();
+            for candidate in &tree.candidates {
+                let path = Path::new(&candidate.easyconfig_path);
+                let canon = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+                by_canon.insert(canon, candidate);
+            }
+            let targets: Vec<PathBuf> = match recipes_file {
+                Some(file) => {
+                    let body = std::fs::read_to_string(&file)
+                        .with_context(|| format!("--recipes-file {}", file.display()))?;
+                    body.lines()
+                        .map(str::trim)
+                        .filter(|line| !line.is_empty())
+                        .map(|line| {
+                            let p = Path::new(line);
+                            if p.is_absolute() {
+                                p.to_path_buf()
+                            } else {
+                                canon_root.join(p)
+                            }
+                        })
+                        .collect()
+                }
+                None => tree
+                    .candidates
+                    .iter()
+                    .map(|c| PathBuf::from(&c.easyconfig_path))
+                    .collect(),
+            };
+            let mut recipes = Vec::with_capacity(targets.len());
+            for target in &targets {
+                let canon_target = std::fs::canonicalize(target).unwrap_or_else(|_| target.clone());
+                let rel = canon_target
+                    .strip_prefix(&canon_root)
+                    .unwrap_or(&canon_target)
+                    .to_string_lossy()
+                    .into_owned();
+                let reporting = eb_stack::resolve_easyconfig_file_reporting(&canon_target);
+                let (candidate_owned, skipped_statements) = match reporting {
+                    Ok((ec, skipped)) => (Some(ec.to_candidate()), skipped),
+                    Err(err) => {
+                        recipes.push(serde_json::json!({
+                            "rel": rel,
+                            "ok": false,
+                            "error": err.to_string(),
+                            "dropped_exts": false,
+                            "skipped_statements": [],
+                        }));
+                        continue;
+                    }
+                };
+                let candidate = by_canon
+                    .get(&canon_target)
+                    .copied()
+                    .or(candidate_owned.as_ref())
+                    .expect("resolved candidate");
+                let dropped_exts = skipped_statements.iter().any(|statement| {
+                    statement.text.contains("exts_list") || statement.message.contains("exts_list")
+                });
+                let skipped_strings: Vec<String> =
+                    skipped_statements.iter().map(ToString::to_string).collect();
+                let mod_name = eb_stack::build_order::module_name(
+                    &eb_stack::build_order::ModuleKey::of(candidate),
+                );
+                let deps = index.resolve_candidate_deps(candidate);
+                recipes.push(serde_json::json!({
+                    "rel": rel,
+                    "ok": true,
+                    "error": serde_json::Value::Null,
+                    "name": candidate.name,
+                    "version": candidate.version,
+                    "versionprefix": candidate.versionprefix.as_deref().unwrap_or(""),
+                    "versionsuffix": candidate.versionsuffix.as_deref().unwrap_or(""),
+                    "toolchain": {
+                        "name": candidate.toolchain.name,
+                        "version": candidate.toolchain.version,
+                    },
+                    "module_name": mod_name,
+                    "exts_count": candidate.exts_list.len(),
+                    "dropped_exts": dropped_exts,
+                    "skipped_statements": skipped_strings,
+                    "deps": deps,
+                }));
+            }
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "tree_candidates": tree.candidates.len(),
+                    "tree_skipped_count": tree.skipped.len(),
+                    "recipes": recipes,
+                }))?
+            );
             Ok(())
         }
     }
