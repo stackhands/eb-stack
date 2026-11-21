@@ -228,6 +228,7 @@ jobs:
             --test module_tree_dump_script \
             --test oom_profile \
             --test optimisation_criteria \
+            --test parity_audit_script \
             --test pr_merge_order \
             --test pr_overlap \
             --test pr_overlap_arch \

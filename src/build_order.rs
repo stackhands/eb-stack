@@ -1624,6 +1624,62 @@ pub fn runtime_edges(order: &[Candidate]) -> HashMap<String, Vec<String>> {
     edges
 }
 
+/// One dependency resolution record emitted for EasyBuild parity checks.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct ParityDepResolution {
+    /// Dependency section: `"runtime"` or `"build"`.
+    pub kind: &'static str,
+    /// Dependency package name.
+    pub name: String,
+    /// Requested version string.
+    pub version_req: String,
+    /// Optional versionsuffix constraint.
+    pub versionsuffix: Option<String>,
+    /// Selected dependency module name (`Name/full_version`), if found.
+    pub resolved_module: Option<String>,
+}
+
+/// Pre-indexed candidate table for resolving dependencies across a tree.
+pub struct ParityTreeIndex<'a> {
+    all: &'a [Candidate],
+    by_name: HashMap<&'a str, Vec<&'a Candidate>>,
+}
+
+impl<'a> ParityTreeIndex<'a> {
+    /// Index `candidates` by package name once for repeated parity lookups.
+    pub fn new(candidates: &'a [Candidate]) -> Self {
+        Self {
+            all: candidates,
+            by_name: index_by_name(candidates),
+        }
+    }
+
+    /// Resolve every runtime and build dependency of `candidate` at its
+    /// nearest toolchain hierarchy level.
+    pub fn resolve_candidate_deps(&self, candidate: &Candidate) -> Vec<ParityDepResolution> {
+        let mut out =
+            Vec::with_capacity(candidate.dependencies.len() + candidate.builddependencies.len());
+        for (kind, deps) in [
+            ("runtime", &candidate.dependencies),
+            ("build", &candidate.builddependencies),
+        ] {
+            for dep in deps {
+                let resolved_module =
+                    resolve_dep(&self.by_name, candidate, dep, Choice::Newest, self.all)
+                        .map(|matched| module_name(&ModuleKey::of(matched)));
+                out.push(ParityDepResolution {
+                    kind,
+                    name: dep.name.clone(),
+                    version_req: dep.version_req.clone(),
+                    versionsuffix: dep.versionsuffix.clone(),
+                    resolved_module,
+                });
+            }
+        }
+        out
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
