@@ -11,8 +11,10 @@ that touch module naming (``ModuleRC``, ``Toolchain``, ``Bundle``,
 Compares ``eb-stack recipe parity-audit`` against EasyBuild (or a
 pre-generated ``--truth-json`` oracle) across parse status, dropped
 ``exts_list``, ``module_name``, ``versionsuffix``, ``exts_count``, and
-nearest-hierarchy-level dependency resolution. Exits 0 on full parity
-and 1 on any mismatch or error.
+nearest-hierarchy-level dependency resolution. External modules are
+left out of both sides. A dependency matches on name and version, and
+on toolchain when both sides name one. Exits 0 on full parity and 1
+on any mismatch or error.
 """
 
 from __future__ import annotations
@@ -551,6 +553,47 @@ def run_eb_stack_audit(eb_stack_bin: Path, root: Path, rels: list[str]) -> dict:
     return json.loads(proc.stdout)
 
 
+def _is_external(dep: dict) -> bool:
+    return bool(dep.get("external_module"))
+
+
+def _dep_version(dep: dict) -> str:
+    raw = dep.get("version")
+    if raw in (None, ""):
+        raw = dep.get("version_req") or ""
+    text = str(raw)
+    if text.startswith("=="):
+        return text[2:]
+    return text
+
+
+def _dep_toolchain(dep: dict) -> tuple[str, str] | None:
+    name = dep.get("toolchain_name")
+    version = dep.get("toolchain_version")
+    if not name:
+        toolchain = dep.get("toolchain")
+        if isinstance(toolchain, dict):
+            name = toolchain.get("name") or ""
+            version = toolchain.get("version") or ""
+        else:
+            return None
+    name = str(name)
+    if not name:
+        return None
+    return (name, str(version or ""))
+
+
+def _same_dep(left: dict, right: dict) -> bool:
+    """Name and version, plus toolchain when both sides record one."""
+    if str(left.get("name") or "") != str(right.get("name") or ""):
+        return False
+    if _dep_version(left) != _dep_version(right):
+        return False
+    left_tc = _dep_toolchain(left)
+    right_tc = _dep_toolchain(right)
+    return not (left_tc and right_tc and left_tc != right_tc)
+
+
 def compare_parity(truth_rows: list[dict], stack_rows: list[dict]) -> dict:
     by_rel_stack = {row["rel"]: row for row in stack_rows}
     mismatches: list[dict] = []
@@ -643,38 +686,38 @@ def compare_parity(truth_rows: list[dict], stack_rows: list[dict]) -> dict:
 
         # External modules have no toolchain. Drop them on both sides so an
         # eb-stack external dependency is not reported as extra.
-        external_keys = {
-            (kind, str(dep.get("name") or ""))
-            for kind, field in (("runtime", "dependencies"), ("build", "builddependencies"))
-            for dep in truth.get(field, [])
-            if dep.get("external_module")
-        }
-        st_deps_by_key: dict[tuple[str, str], list[str | None]] = {}
-        for dep in stack.get("deps", []):
-            key = (dep["kind"], str(dep.get("name") or ""))
-            if dep.get("external_module") or key in external_keys:
-                continue
-            st_deps_by_key.setdefault(key, []).append(dep.get("resolved_module"))
-
-        truth_deps_by_key: dict[tuple[str, str], list[dict]] = {}
+        stack_deps = [dep for dep in stack.get("deps", []) if not _is_external(dep)]
+        external_truth: list[dict] = []
+        truth_by_kind: dict[str, list[dict]] = {"runtime": [], "build": []}
         for kind, field in (("runtime", "dependencies"), ("build", "builddependencies")):
             for dep in truth.get(field, []):
-                if dep.get("external_module"):
+                if _is_external(dep):
+                    external_truth.append(dep)
                     continue
-                key = (kind, dep["name"])
-                truth_deps_by_key.setdefault(key, []).append(dep)
+                truth_by_kind[kind].append(dep)
+
+        def _stack_for(kind: str, dep: dict) -> list[dict]:
+            return [
+                other
+                for other in stack_deps
+                if other.get("kind") == kind and _same_dep(dep, other)
+            ]
+
+        for kind, deps in truth_by_kind.items():
+            for dep in deps:
+                matched = _stack_for(kind, dep)
                 if not dep.get("toolchain_name"):
                     mismatches.append(
                         {
                             "rel": rel,
                             "field": f"{kind}_dep:{dep['name']}:missing_toolchain",
                             "easybuild": f"missing toolchain_name in recipe {rel}",
-                            "eb_stack": st_deps_by_key.get(key, []),
+                            "eb_stack": [other.get("resolved_module") for other in matched],
                         }
                     )
                     continue
                 expected_mod = format_eb_dep_module(dep)
-                candidates = st_deps_by_key.get(key, [])
+                candidates = [other.get("resolved_module") for other in matched]
                 if expected_mod not in candidates:
                     mismatches.append(
                         {
@@ -684,17 +727,20 @@ def compare_parity(truth_rows: list[dict], stack_rows: list[dict]) -> dict:
                             "eb_stack": candidates,
                         }
                     )
-        for key, candidates in st_deps_by_key.items():
-            if key not in truth_deps_by_key:
-                kind, name = key
-                mismatches.append(
-                    {
-                        "rel": rel,
-                        "field": f"extra_{kind}_dep:{name}",
-                        "easybuild": [],
-                        "eb_stack": candidates,
-                    }
-                )
+        for dep in stack.get("deps", []):
+            kind = str(dep.get("kind") or "")
+            if _is_external(dep) or any(_same_dep(dep, other) for other in external_truth):
+                continue
+            if any(_same_dep(dep, other) for other in truth_by_kind.get(kind, [])):
+                continue
+            mismatches.append(
+                {
+                    "rel": rel,
+                    "field": f"extra_{kind}_dep:{dep.get('name')}",
+                    "easybuild": [],
+                    "eb_stack": [dep.get("resolved_module")],
+                }
+            )
 
     return {
         "checked": checked,

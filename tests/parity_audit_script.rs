@@ -700,3 +700,114 @@ fn parity_audit_ignores_external_modules_on_both_sides() {
     );
     assert!(!output.status.success());
 }
+
+#[test]
+fn parity_audit_reports_extra_dependency_version_and_toolchain() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let ec_root = temp.path().join("easyconfigs");
+    generate_fixture_tree(&ec_root);
+
+    let truth_path = temp.path().join("truth.json");
+    let stack_path = temp.path().join("stack.json");
+    let truth = serde_json::json!({
+        "results": [{
+            "rel": "t/ToolA/ToolA-1.0-foss-2024a-extra.eb",
+            "ok": true,
+            "module_name": "ToolA/pre-1.0-foss-2024a-extra",
+            "versionsuffix": "-extra",
+            "exts_list": [
+                {"name": "extone", "version": "0.1.0"},
+                {"name": "exttwo", "version": "0.2.0"}
+            ],
+            "dependencies": [{
+                "name": "zlib",
+                "version": "1.3.1",
+                "toolchain_name": "GCCcore",
+                "toolchain_version": "13.3.0",
+                "external_module": false,
+                "resolved_module": "zlib/1.3.1-GCCcore-13.3.0"
+            }],
+            "builddependencies": []
+        }]
+    });
+    let stack = serde_json::json!({
+        "recipes": [{
+            "rel": "t/ToolA/ToolA-1.0-foss-2024a-extra.eb",
+            "ok": true,
+            "module_name": "ToolA/pre-1.0-foss-2024a-extra",
+            "versionsuffix": "-extra",
+            "exts_count": 2,
+            "dropped_exts": false,
+            "deps": [
+                {
+                    "kind": "runtime",
+                    "name": "zlib",
+                    "version_req": "==1.3.1",
+                    "toolchain_name": "GCCcore",
+                    "toolchain_version": "13.3.0",
+                    "resolved_module": "zlib/1.3.1-GCCcore-13.3.0"
+                },
+                {
+                    "kind": "runtime",
+                    "name": "zlib",
+                    "version_req": "==1.2.13",
+                    "toolchain_name": "GCCcore",
+                    "toolchain_version": "12.3.0",
+                    "resolved_module": "zlib/1.2.13-GCCcore-12.3.0"
+                },
+                {
+                    "kind": "runtime",
+                    "name": "zlib",
+                    "version_req": "==1.3.1",
+                    "toolchain_name": "GCC",
+                    "toolchain_version": "13.3.0",
+                    "resolved_module": "zlib/1.3.1-GCC-13.3.0"
+                }
+            ]
+        }]
+    });
+    write_file(&truth_path, &serde_json::to_string_pretty(&truth).unwrap());
+    write_file(&stack_path, &serde_json::to_string_pretty(&stack).unwrap());
+
+    let report_path = temp.path().join("report.json");
+    let output = Command::new("python3")
+        .arg(repo_root().join("scripts/parity_audit.py"))
+        .arg("--easyconfigs")
+        .arg(&ec_root)
+        .arg("--truth-json")
+        .arg(&truth_path)
+        .arg("--eb-stack-json")
+        .arg(&stack_path)
+        .arg("--out")
+        .arg(&report_path)
+        .output()
+        .expect("run parity_audit.py version identity check");
+
+    let report: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&report_path).unwrap()).unwrap();
+    let fields = mismatch_fields(&report);
+    assert!(
+        !fields.iter().any(|field| field == "runtime_dep:zlib"),
+        "the shared zlib 1.3.1 GCCcore candidate must match: {report}"
+    );
+    let extra_modules: Vec<String> = report["mismatches"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|mismatch| mismatch["field"] == "extra_runtime_dep:zlib")
+        .map(|mismatch| mismatch["eb_stack"].to_string())
+        .collect();
+    assert!(
+        extra_modules
+            .iter()
+            .any(|text| text.contains("zlib/1.2.13-GCCcore-12.3.0")),
+        "extra version under zlib must be reported: {extra_modules:?}"
+    );
+    assert!(
+        extra_modules
+            .iter()
+            .any(|text| text.contains("zlib/1.3.1-GCC-13.3.0")),
+        "extra toolchain under zlib must be reported: {extra_modules:?}"
+    );
+    assert!(!output.status.success());
+}

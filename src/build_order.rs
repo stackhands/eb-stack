@@ -1635,6 +1635,11 @@ pub struct ParityDepResolution {
     pub version_req: String,
     /// Optional versionsuffix constraint.
     pub versionsuffix: Option<String>,
+    /// Resolved dependency toolchain name, or the tuple's own toolchain.
+    /// Empty when neither is known.
+    pub toolchain_name: String,
+    /// Resolved dependency toolchain version. Empty when [`Self::toolchain_name`] is.
+    pub toolchain_version: String,
     /// Selected dependency module name (`Name/full_version`), if found.
     pub resolved_module: Option<String>,
 }
@@ -1664,15 +1669,18 @@ impl<'a> ParityTreeIndex<'a> {
             ("build", &candidate.builddependencies),
         ] {
             for dep in deps {
-                let resolved_module =
-                    resolve_dep(&self.by_name, candidate, dep, Choice::Newest, self.all)
-                        .map(|matched| module_name(&ModuleKey::of(matched)));
+                let matched = resolve_dep(&self.by_name, candidate, dep, Choice::Newest, self.all);
+                let toolchain = matched
+                    .map(|found| &found.toolchain)
+                    .or(dep.toolchain.as_ref());
                 out.push(ParityDepResolution {
                     kind,
                     name: dep.name.clone(),
                     version_req: dep.version_req.clone(),
                     versionsuffix: dep.versionsuffix.clone(),
-                    resolved_module,
+                    toolchain_name: toolchain.map(|tc| tc.name.clone()).unwrap_or_default(),
+                    toolchain_version: toolchain.map(|tc| tc.version.clone()).unwrap_or_default(),
+                    resolved_module: matched.map(|found| module_name(&ModuleKey::of(found))),
                 });
             }
         }
