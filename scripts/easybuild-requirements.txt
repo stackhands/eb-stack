@@ -1,4 +1,13 @@
-# Exact EasyBuild pins for the parity audit. tests/parity_audit_script.rs
-# installs this file into a virtual environment of its own.
-easybuild-framework==5.4.2
-easybuild-easyblocks==5.4.2
+# Exact EasyBuild pins for the parity audit, with artifact hashes.
+# tests/parity_audit_script.rs installs it into a virtual environment of
+# its own, after scripts/easybuild-build-requirements.txt:
+#
+#   pip install --require-hashes --only-binary :all: -r scripts/easybuild-build-requirements.txt
+#   pip install --require-hashes --no-build-isolation -r scripts/easybuild-requirements.txt
+#
+# Neither package declares a runtime dependency; --require-hashes refuses
+# one that appears without a pin here.
+easybuild-framework==5.4.2 \
+    --hash=sha256:284fe46e92defef7dd8827082064285a806a767f6fd3322bfe26c859afbb730f
+easybuild-easyblocks==5.4.2 \
+    --hash=sha256:6af03a367baa46dfcf9378cf6dc40c545c79985484177313cfe81627d33aa6de

@@ -7,24 +7,79 @@ fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
-fn pinned_easybuild_specs() -> Vec<String> {
-    let path = repo_root().join("scripts/easybuild-requirements.txt");
+const EASYBUILD_BUILD_LOCK: &str = "scripts/easybuild-build-requirements.txt";
+const EASYBUILD_LOCK: &str = "scripts/easybuild-requirements.txt";
+
+/// Requirements in a pip lock file, continuation lines joined.
+fn locked_requirements(rel: &str) -> Vec<String> {
+    let path = repo_root().join(rel);
     let text = std::fs::read_to_string(&path)
         .unwrap_or_else(|err| panic!("read {}: {err}", path.display()));
-    let specs: Vec<String> = text
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty() && !line.starts_with('#'))
-        .map(str::to_string)
-        .collect();
-    assert!(!specs.is_empty(), "EasyBuild requirements file is empty");
-    for spec in &specs {
-        assert!(
-            spec.contains("=="),
-            "EasyBuild requirement must pin an exact version: {spec}"
-        );
+    let mut requirements = Vec::new();
+    let mut current = String::new();
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        match line.strip_suffix('\\') {
+            Some(part) => current.push_str(part),
+            None => {
+                current.push_str(line);
+                requirements.push(std::mem::take(&mut current));
+            }
+        }
     }
-    specs
+    assert!(current.is_empty(), "{rel} ends in a continuation");
+    requirements
+}
+
+/// Install the locked EasyBuild into `python`'s environment.
+fn install_locked_easybuild(python: &Path) {
+    for args in [
+        vec!["--only-binary", ":all:", "-r", EASYBUILD_BUILD_LOCK],
+        vec!["--no-build-isolation", "-r", EASYBUILD_LOCK],
+    ] {
+        let status = Command::new(python)
+            .current_dir(repo_root())
+            .args(["-m", "pip", "install", "--disable-pip-version-check"])
+            .arg("--require-hashes")
+            .args(&args)
+            .status()
+            .expect("run pip");
+        assert!(status.success(), "pip install {args:?}");
+    }
+}
+
+#[test]
+fn easybuild_locks_pin_every_package_with_a_hash() {
+    for rel in [EASYBUILD_BUILD_LOCK, EASYBUILD_LOCK] {
+        let requirements = locked_requirements(rel);
+        assert!(!requirements.is_empty(), "{rel} pins nothing");
+        for requirement in &requirements {
+            let spec = requirement.split_whitespace().next().unwrap_or("");
+            assert!(
+                spec.contains("==") && !spec.contains('*'),
+                "{rel}: {requirement} must pin an exact version"
+            );
+            let hashes: Vec<&str> = requirement
+                .split_whitespace()
+                .filter_map(|token| token.strip_prefix("--hash=sha256:"))
+                .collect();
+            assert!(
+                !hashes.is_empty()
+                    && hashes
+                        .iter()
+                        .all(|hash| hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit())),
+                "{rel}: {requirement} must carry a sha256 hash"
+            );
+        }
+    }
+    let packages: Vec<String> = locked_requirements(EASYBUILD_LOCK)
+        .iter()
+        .filter_map(|requirement| requirement.split("==").next().map(str::to_string))
+        .collect();
+    assert_eq!(packages, ["easybuild-framework", "easybuild-easyblocks"]);
 }
 
 fn mismatch_fields(report: &serde_json::Value) -> Vec<String> {
@@ -295,8 +350,7 @@ fn parity_audit_passes_against_generated_easybuild_stub_and_eb_stack() {
 }
 
 /// Resolves a GCCcore dependency and an empty toolchain through the real
-/// EasyBuild framework, at the versions `scripts/easybuild-requirements.txt`
-/// pins.
+/// EasyBuild framework, installed from the hashed locks in `scripts/`.
 #[test]
 fn parity_audit_resolves_with_easybuild_framework() {
     let temp = tempfile::tempdir().expect("tempdir");
@@ -314,12 +368,7 @@ fn parity_audit_resolves_with_easybuild_framework() {
         venv_status.success(),
         "create EasyBuild virtual environment"
     );
-    let mut install = Command::new(&python);
-    install
-        .args(["-m", "pip", "install", "--disable-pip-version-check"])
-        .args(pinned_easybuild_specs());
-    let install_status = install.status().expect("install EasyBuild framework");
-    assert!(install_status.success(), "install EasyBuild framework");
+    install_locked_easybuild(&python);
 
     let output = Command::new(&python)
         .arg(repo_root().join("scripts/parity_audit.py"))
