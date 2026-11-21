@@ -1,0 +1,8 @@
+easyblock = 'ConfigureMake'
+name = 'MissTc'
+version = '1.0'
+homepage = 'https://example.org/'
+description = 'Dependency with an empty toolchain'
+toolchain = SYSTEM
+dependencies = [('orphan', '1.0', '', ('', ''))]
+moduleclass = 'tools'

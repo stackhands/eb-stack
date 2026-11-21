@@ -1,11 +1,19 @@
-//! Reproducibility and failure-mode tests for `scripts/parity_audit.py`
-//! using generated fixtures only.
+//! Reproducibility and failure-mode tests for `scripts/parity_audit.py`.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+}
+
+fn mismatch_fields(report: &serde_json::Value) -> Vec<String> {
+    report["mismatches"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|mismatch| mismatch["field"].as_str().unwrap().to_string())
+        .collect()
 }
 
 fn write_file(path: &Path, body: &str) {
@@ -207,6 +215,8 @@ class EasyConfig(dict):
     );
 }
 
+/// The generated Python stub covers offline fixture cases; the real framework
+/// resolution path is exercised by `parity_audit_resolves_with_easybuild_framework`.
 #[test]
 fn parity_audit_passes_against_generated_easybuild_stub_and_eb_stack() {
     let temp = tempfile::tempdir().expect("tempdir");
@@ -262,6 +272,90 @@ fn parity_audit_passes_against_generated_easybuild_stub_and_eb_stack() {
     assert!(doc_a["checked"].as_u64().unwrap() >= 5);
     assert_eq!(doc_a, doc_b, "seeded parity runs must be deterministic");
     assert!(truth_out.is_file());
+}
+
+/// Resolves a GCCcore dependency and an empty toolchain through the real
+/// EasyBuild framework.
+#[test]
+fn parity_audit_resolves_with_easybuild_framework() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let ec_root = repo_root().join("fixtures/parity_audit_framework/easyconfigs");
+    let report = temp.path().join("report.json");
+    let venv = temp.path().join("easybuild-venv");
+    let python = venv.join("bin/python");
+
+    let venv_status = Command::new("python3")
+        .args(["-m", "venv"])
+        .arg(&venv)
+        .status()
+        .expect("create EasyBuild virtual environment");
+    assert!(
+        venv_status.success(),
+        "create EasyBuild virtual environment"
+    );
+    let install_status = Command::new(&python)
+        .args([
+            "-m",
+            "pip",
+            "install",
+            "easybuild-framework",
+            "easybuild-easyblocks",
+        ])
+        .status()
+        .expect("install EasyBuild framework");
+    assert!(install_status.success(), "install EasyBuild framework");
+
+    let output = Command::new(&python)
+        .arg(repo_root().join("scripts/parity_audit.py"))
+        .arg("--easyconfigs")
+        .arg(&ec_root)
+        .arg("--seed")
+        .arg("42")
+        .arg("--sample-size")
+        .arg("10")
+        .arg("--eb-stack")
+        .arg(env!("CARGO_BIN_EXE_eb-stack"))
+        .arg("--out")
+        .arg(&report)
+        .output()
+        .expect("run parity_audit.py with easybuild-framework");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let doc: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&report).unwrap_or_default())
+            .unwrap_or(serde_json::Value::Null);
+    assert!(report.is_file(), "stdout:\n{stdout}\nstderr:\n{stderr}");
+    assert_eq!(
+        doc["checked"], 4,
+        "stdout:\n{stdout}\nstderr:\n{stderr}\n{doc}"
+    );
+    let fields = mismatch_fields(&doc);
+    assert!(
+        fields
+            .iter()
+            .any(|field| field == "runtime_dep:orphan:missing_toolchain"),
+        "missing toolchain must be reported, got {fields:?}\n{doc}"
+    );
+    let app_mismatches: Vec<_> = doc["mismatches"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|mismatch| {
+            mismatch["rel"]
+                .as_str()
+                .unwrap()
+                .contains("App-1.0-GCCcore-13.3.0.eb")
+        })
+        .collect();
+    assert!(
+        app_mismatches.is_empty(),
+        "GCCcore dependency resolution mismatched: {app_mismatches:?}"
+    );
+    assert!(
+        !output.status.success(),
+        "stdout:\n{stdout}\nstderr:\n{stderr}"
+    );
 }
 
 #[test]
@@ -323,7 +417,76 @@ fn parity_audit_exits_nonzero_on_mismatch_and_dropped_exts() {
     );
     let report: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&report_path).unwrap()).unwrap();
-    assert_eq!(report["mismatch_count"], 2);
+    assert_eq!(report["mismatch_count"], 3);
+}
+
+#[test]
+fn parity_audit_reports_dropped_extensions_missing_toolchains_and_extra_deps() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let ec_root = temp.path().join("easyconfigs");
+    generate_fixture_tree(&ec_root);
+
+    let truth_path = temp.path().join("truth.json");
+    let stack_path = temp.path().join("stack.json");
+    let truth = serde_json::json!({
+        "results": [{
+            "rel": "t/ToolA/ToolA-1.0-foss-2024a-extra.eb",
+            "ok": true,
+            "module_name": "ToolA/pre-1.0-foss-2024a-extra",
+            "versionsuffix": "-extra",
+            "exts_list": [],
+            "dependencies": [{
+                "name": "zlib",
+                "toolchain_name": null,
+                "external_module": false
+            }],
+            "builddependencies": []
+        }]
+    });
+    let stack = serde_json::json!({
+        "recipes": [{
+            "rel": "t/ToolA/ToolA-1.0-foss-2024a-extra.eb",
+            "ok": true,
+            "module_name": "ToolA/pre-1.0-foss-2024a-extra",
+            "versionsuffix": "-extra",
+            "exts_count": 0,
+            "dropped_exts": true,
+            "skipped_statements": ["exts_list"],
+            "deps": [
+                {"kind": "runtime", "name": "zlib", "resolved_module": null},
+                {"kind": "build", "name": "CMake", "resolved_module": "CMake/3.29.3"}
+            ]
+        }]
+    });
+    write_file(&truth_path, &serde_json::to_string_pretty(&truth).unwrap());
+    write_file(&stack_path, &serde_json::to_string_pretty(&stack).unwrap());
+
+    let report_path = temp.path().join("report.json");
+    let output = Command::new("python3")
+        .arg(repo_root().join("scripts/parity_audit.py"))
+        .arg("--easyconfigs")
+        .arg(&ec_root)
+        .arg("--truth-json")
+        .arg(&truth_path)
+        .arg("--eb-stack-json")
+        .arg(&stack_path)
+        .arg("--out")
+        .arg(&report_path)
+        .output()
+        .expect("run parity_audit.py mismatch check");
+
+    assert!(!output.status.success());
+    let report: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&report_path).unwrap()).unwrap();
+    let fields: Vec<&str> = report["mismatches"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|mismatch| mismatch["field"].as_str().unwrap())
+        .collect();
+    assert!(fields.contains(&"dropped_exts"));
+    assert!(fields.contains(&"runtime_dep:zlib:missing_toolchain"));
+    assert!(fields.contains(&"extra_build_dep:CMake"));
 }
 
 #[test]

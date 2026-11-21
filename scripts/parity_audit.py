@@ -30,10 +30,6 @@ import tempfile
 from pathlib import Path
 
 TARGETED_EASYBLOCKS = ("ModuleRC", "Toolchain", "Bundle", "Amber")
-_ASSIGN_RE = re.compile(
-    r"^\s*(easyblock|versionprefix|modaltsoftname|exts_list|dependencies|builddependencies)\s*=",
-    re.MULTILINE,
-)
 _TOOLCHAIN_RE = re.compile(
     r"^\s*toolchain\s*=\s*\{\s*['\"]name['\"]\s*:\s*['\"]([^'\"]+)['\"]",
     re.MULTILINE,
@@ -650,14 +646,25 @@ def compare_parity(truth_rows: list[dict], stack_rows: list[dict]) -> dict:
             key = (dep["kind"], dep["name"])
             st_deps_by_key.setdefault(key, []).append(dep.get("resolved_module"))
 
+        truth_deps_by_key: dict[tuple[str, str], list[dict]] = {}
         for kind, field in (("runtime", "dependencies"), ("build", "builddependencies")):
             for dep in truth.get(field, []):
                 if dep.get("external_module"):
                     continue
-                if not dep.get("toolchain_name") and dep.get("toolchain_name") != "":
+                key = (kind, dep["name"])
+                truth_deps_by_key.setdefault(key, []).append(dep)
+                if not dep.get("toolchain_name"):
+                    mismatches.append(
+                        {
+                            "rel": rel,
+                            "field": f"{kind}_dep:{dep['name']}:missing_toolchain",
+                            "easybuild": f"missing toolchain_name in recipe {rel}",
+                            "eb_stack": st_deps_by_key.get(key, []),
+                        }
+                    )
                     continue
                 expected_mod = format_eb_dep_module(dep)
-                candidates = st_deps_by_key.get((kind, dep["name"]), [])
+                candidates = st_deps_by_key.get(key, [])
                 if expected_mod not in candidates:
                     mismatches.append(
                         {
@@ -667,6 +674,17 @@ def compare_parity(truth_rows: list[dict], stack_rows: list[dict]) -> dict:
                             "eb_stack": candidates,
                         }
                     )
+        for key, candidates in st_deps_by_key.items():
+            if key not in truth_deps_by_key:
+                kind, name = key
+                mismatches.append(
+                    {
+                        "rel": rel,
+                        "field": f"extra_{kind}_dep:{name}",
+                        "easybuild": [],
+                        "eb_stack": candidates,
+                    }
+                )
 
     return {
         "checked": checked,

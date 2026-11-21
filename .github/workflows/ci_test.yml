@@ -176,6 +176,9 @@ jobs:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
       - name: Every integration test that is not ignore-only
         run: |
           cargo test --locked \
