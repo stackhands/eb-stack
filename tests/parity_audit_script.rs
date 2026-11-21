@@ -34,6 +34,20 @@ fn locked_requirements(rel: &str) -> Vec<String> {
     requirements
 }
 
+/// Create a virtual environment holding the locked EasyBuild.
+fn locked_easybuild_venv(dir: &Path) -> PathBuf {
+    let venv = dir.join("easybuild-venv");
+    let status = Command::new("python3")
+        .args(["-m", "venv"])
+        .arg(&venv)
+        .status()
+        .expect("create EasyBuild virtual environment");
+    assert!(status.success(), "create EasyBuild virtual environment");
+    let python = venv.join("bin/python");
+    install_locked_easybuild(&python);
+    python
+}
+
 /// Install the locked EasyBuild into `python`'s environment.
 fn install_locked_easybuild(python: &Path) {
     for args in [
@@ -202,6 +216,7 @@ fn generate_easyblocks_stub(root: &Path) {
 fn generate_easybuild_python_stub(root: &Path) {
     for rel in [
         "easybuild/__init__.py",
+        "easybuild/base/__init__.py",
         "easybuild/framework/__init__.py",
         "easybuild/framework/easyconfig/__init__.py",
         "easybuild/tools/__init__.py",
@@ -209,6 +224,18 @@ fn generate_easybuild_python_stub(root: &Path) {
     ] {
         write_file(&root.join(rel), "");
     }
+    write_file(
+        &root.join("easybuild/base/fancylogger.py"),
+        r#"import logging
+
+def getLogger(name=None, fname=True):
+    return logging.getLogger(name)
+"#,
+    );
+    write_file(
+        &root.join("easybuild/tools/build_log.py"),
+        "class EasyBuildError(Exception):\n    pass\n",
+    );
     write_file(
         &root.join("easybuild/tools/options.py"),
         r#"ROBOT_ROOT = None
@@ -223,8 +250,8 @@ def set_up_configuration(args=None, silent=True):
     write_file(
         &root.join("easybuild/tools/modules.py"),
         r#"class NoModulesTool:
-    def __init__(self, testing=False):
-        self.testing = testing
+    def __init__(self, *args, **kwargs):
+        self.version = None
 "#,
     );
     write_file(
@@ -240,7 +267,8 @@ def set_up_configuration(args=None, silent=True):
     );
     write_file(
         &root.join("easybuild/framework/easyconfig/easyconfig.py"),
-        r#"from pathlib import Path
+        r#"import tempfile
+from pathlib import Path
 from easybuild.tools import options
 from easybuild.tools.module_naming_scheme.easybuild_mns import EasyBuildMNS
 
@@ -279,6 +307,7 @@ def _resolve_dep(dep_tuple, robot_root):
 class EasyConfig(dict):
     def __init__(self, path, validate=False):
         super().__init__(_parse_eb(path))
+        self.setdefault("easyblock", None)
         self._robot = options.ROBOT_ROOT or str(Path(path).parents[2])
 
     def dependencies(self):
@@ -286,6 +315,46 @@ class EasyConfig(dict):
 
     def builddependencies(self):
         return [_resolve_dep(d, self._robot) for d in self.get("builddependencies", [])]
+
+class _Toolchain:
+    dependencies = []
+
+class _ModuleGenerator:
+    def __init__(self, app):
+        self.app = app
+
+    def get_module_filepath(self, fake=False):
+        return str(Path(self.app.module_dir) / EasyBuildMNS().det_full_module_name(self.app.cfg))
+
+class StubEasyBlock:
+    """Writes the module file a ConfigureMake easyblock would: a load for
+    the toolchain unless SYSTEM, then one per runtime dependency."""
+
+    def __init__(self, ec):
+        self.cfg = ec
+        self.toolchain = _Toolchain()
+        self.module_generator = _ModuleGenerator(self)
+
+    def gen_installdir(self):
+        self.installdir_mod = tempfile.mkdtemp()
+
+    def make_module_step(self, fake=False):
+        self.module_dir = tempfile.mkdtemp()
+        tc = self.cfg.get("toolchain") or {"name": "system", "version": "system"}
+        loads = [] if tc["name"].lower() == "system" else [f"{tc['name']}/{tc['version']}"]
+        loads += [dep["full_mod_name"] for dep in self.toolchain.dependencies]
+        path = Path(self.module_generator.get_module_filepath(fake=True))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        text = '#%Module\n' + "".join(f"module load {mod}\n" for mod in loads)
+        text += f'setenv\tEBVERSION{self.cfg["name"].upper()}\t\t"{self.cfg["version"]}"\n'
+        path.write_text(text)
+        return self.module_dir
+
+    def close_log(self):
+        pass
+
+def get_easyblock_class(easyblock, name=None):
+    return StubEasyBlock
 "#,
     );
 }
@@ -356,19 +425,7 @@ fn parity_audit_resolves_with_easybuild_framework() {
     let temp = tempfile::tempdir().expect("tempdir");
     let ec_root = repo_root().join("fixtures/parity_audit_framework/easyconfigs");
     let report = temp.path().join("report.json");
-    let venv = temp.path().join("easybuild-venv");
-    let python = venv.join("bin/python");
-
-    let venv_status = Command::new("python3")
-        .args(["-m", "venv"])
-        .arg(&venv)
-        .status()
-        .expect("create EasyBuild virtual environment");
-    assert!(
-        venv_status.success(),
-        "create EasyBuild virtual environment"
-    );
-    install_locked_easybuild(&python);
+    let python = locked_easybuild_venv(temp.path());
 
     let output = Command::new(&python)
         .arg(repo_root().join("scripts/parity_audit.py"))
@@ -419,6 +476,133 @@ fn parity_audit_resolves_with_easybuild_framework() {
     );
     assert!(
         !output.status.success(),
+        "stdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+}
+
+#[test]
+fn parity_audit_compares_modules_generated_by_targeted_easyblocks() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let fixture = repo_root().join("fixtures/parity_audit_hooks");
+    let report = temp.path().join("report.json");
+    let python = locked_easybuild_venv(temp.path());
+
+    let output = Command::new(&python)
+        .arg(repo_root().join("scripts/parity_audit.py"))
+        .arg("--easyconfigs")
+        .arg(fixture.join("easyconfigs"))
+        .arg("--sample-size")
+        .arg("0")
+        .arg("--include-easyblocks")
+        .arg(fixture.join("easyblocks/hookload.py"))
+        .arg("--include-easyblocks")
+        .arg(fixture.join("easyblocks/hookversion.py"))
+        .arg("--eb-stack")
+        .arg(env!("CARGO_BIN_EXE_eb-stack"))
+        .arg("--out")
+        .arg(&report)
+        .output()
+        .expect("run parity_audit.py with easybuild-framework");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let doc: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&report).unwrap_or_default())
+            .unwrap_or(serde_json::Value::Null);
+    assert_eq!(
+        doc["targeted_count"], 2,
+        "stdout:\n{stdout}\nstderr:\n{stderr}\n{doc}"
+    );
+    let mut found: Vec<(String, String)> = doc["mismatches"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default()
+        .iter()
+        .map(|m| {
+            (
+                m["rel"].as_str().unwrap_or_default().to_string(),
+                m["field"].as_str().unwrap_or_default().to_string(),
+            )
+        })
+        .collect();
+    found.sort();
+    assert_eq!(
+        found,
+        [
+            (
+                "h/HookLoad/HookLoad-1.0.eb".to_string(),
+                "generated_module_loads".to_string()
+            ),
+            (
+                "h/HookVersion/HookVersion-1.0.eb".to_string(),
+                "generated_module_version".to_string()
+            ),
+        ],
+        "stdout:\n{stdout}\nstderr:\n{stderr}\n{doc}"
+    );
+    assert!(
+        !output.status.success(),
+        "stdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+}
+
+/// `PythonPackage` asks a bare `python` for its library directory while it
+/// writes the module. With a `python` that always fails first on `PATH`,
+/// the audit must still run the easyblock with its own interpreter.
+#[test]
+fn parity_audit_runs_python_easyblocks_with_its_own_interpreter() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let fixture = repo_root().join("fixtures/parity_audit_python");
+    let report = temp.path().join("report.json");
+    let truth = temp.path().join("truth.json");
+    let python = locked_easybuild_venv(temp.path());
+    let broken = temp.path().join("broken-python");
+    std::fs::create_dir_all(&broken).expect("create broken python dir");
+    std::os::unix::fs::symlink("/bin/false", broken.join("python")).expect("link python");
+    let path = std::env::join_paths(std::iter::once(broken).chain(std::env::split_paths(
+        &std::env::var_os("PATH").unwrap_or_default(),
+    )))
+    .expect("join PATH");
+
+    let output = Command::new(&python)
+        .arg(repo_root().join("scripts/parity_audit.py"))
+        .arg("--easyconfigs")
+        .arg(fixture.join("easyconfigs"))
+        .arg("--sample-size")
+        .arg("0")
+        .arg("--eb-stack")
+        .arg(env!("CARGO_BIN_EXE_eb-stack"))
+        .arg("--emit-truth")
+        .arg(&truth)
+        .arg("--out")
+        .arg(&report)
+        .env("PATH", path)
+        .output()
+        .expect("run parity_audit.py with easybuild-framework");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let doc: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&report).unwrap_or_default())
+            .unwrap_or(serde_json::Value::Null);
+    assert!(
+        doc["targeted_count"].as_u64().unwrap_or_default() >= 1,
+        "stdout:\n{stdout}\nstderr:\n{stderr}\n{doc}"
+    );
+    assert_eq!(
+        doc["mismatches"],
+        serde_json::json!([]),
+        "stdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    let truth: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&truth).unwrap_or_default())
+            .unwrap_or(serde_json::Value::Null);
+    assert_eq!(
+        truth["results"][0]["generated_module_name"], "PyPkg/1.0",
+        "the PythonPackage easyblock must write the module: {truth}"
+    );
+    assert!(
+        output.status.success(),
         "stdout:\n{stdout}\nstderr:\n{stderr}"
     );
 }

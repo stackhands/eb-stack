@@ -1,0 +1,6 @@
+name = 'HookVersion'
+version = '1.0'
+homepage = 'https://example.org/'
+description = 'Its easyblock changes the version while writing the module'
+toolchain = SYSTEM
+moduleclass = 'tools'

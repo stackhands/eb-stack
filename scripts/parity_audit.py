@@ -2,11 +2,15 @@
 """Reproducible parity audit between EasyBuild and ``eb-stack``.
 
 Selects a deterministic stratified sample across an easyconfigs tree
-(seeded via ``--seed``) plus a targeted set of recipes using easyblocks
-that touch module naming (``ModuleRC``, ``Toolchain``, ``Bundle``,
-``Amber``, ``versionprefix``, ``modaltsoftname``, and any easyblock in
-``--easybuild-easyblocks`` overriding ``det_full_module_name`` or using
-``modaltsoftname``).
+(seeded via ``--seed``) plus a targeted set of recipes whose module
+EasyBuild's easyblock hooks may shape: recipes using the ``ModuleRC``,
+``Toolchain``, ``Bundle`` or ``Amber`` easyblocks, recipes setting
+``versionprefix`` or ``modaltsoftname``, and recipes using an easyblock
+found in the installed ``easybuild.easyblocks`` package,
+``--easybuild-easyblocks`` or ``--include-easyblocks`` that overrides a
+module-writing method (``module_naming``), a template method
+(``template``), a toolchain hook (``toolchain``), or touches a naming
+attribute such as ``modaltsoftname`` (``naming_attr``).
 
 Compares ``eb-stack recipe parity-audit`` against EasyBuild (or a
 pre-generated ``--truth-json`` oracle) across parse status, dropped
@@ -16,7 +20,20 @@ dependency record carries an ``external_module`` marker; an EasyBuild
 external module pairs only with a dependency marked external, so an
 external module resolved to an in-tree build is a mismatch. A dependency
 matches on name and version, and on toolchain when both sides name one.
-Exits 0 on full parity and 1 on any mismatch or error.
+
+For every targeted recipe the oracle instantiates the recipe's easyblock
+and has it write its module file (``make_module_step(fake=True)``), so
+each overridden hook runs. From that file it compares the module name
+(the file's path), the ``module load`` statements against the toolchain
+module and eb-stack's resolved runtime dependencies in order, and the
+``EBVERSION*`` value against the recipe version. Environment content the
+hooks write (paths, variables) has no eb-stack counterpart and is not
+compared. EasyBuild runs with ``EbStackAuditModulesTool``, which loads
+no modules, and Tcl module syntax; the flat ``EasyBuildMNS`` needs no
+loaded module to place a module file.
+
+Exits 0 on full parity and 1 on any mismatch or error, including an
+EasyBuild configuration or easyblock that fails.
 """
 
 from __future__ import annotations
@@ -76,6 +93,13 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         type=Path,
         default=None,
         help="Optional easybuild-easyblocks checkout path to scan and add to sys.path.",
+    )
+    parser.add_argument(
+        "--include-easyblocks",
+        type=Path,
+        action="append",
+        default=[],
+        help="Easyblock file to pass to EasyBuild's --include-easyblocks and scan for hooks.",
     )
     parser.add_argument(
         "--pythonpath",
@@ -164,37 +188,52 @@ def _decode_eb_class_name(cls_name: str) -> str:
     )
 
 
-def _class_touches_naming_or_hooks(cls_node: ast.ClassDef) -> bool:
+def _class_hook_categories(cls_node: ast.ClassDef) -> set[str]:
+    categories: set[str] = set()
     for base in cls_node.bases:
-        if isinstance(base, ast.Name) and base.id == "Toolchain":
-            return True
-        if isinstance(base, ast.Attribute) and base.attr == "Toolchain":
-            return True
+        if (isinstance(base, ast.Name) and base.id == "Toolchain") or (
+            isinstance(base, ast.Attribute) and base.attr == "Toolchain"
+        ):
+            categories.add("toolchain")
 
     for node in ast.walk(cls_node):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            if (
-                node.name in _MODULE_NAMING_METHODS
-                or node.name in _VERSION_TEMPLATE_METHODS
-                or node.name in _TOOLCHAIN_HOOK_METHODS
-                or "toolchain" in node.name.lower()
-            ):
-                return True
+            if node.name in _MODULE_NAMING_METHODS:
+                categories.add("module_naming")
+            if node.name in _VERSION_TEMPLATE_METHODS:
+                categories.add("template")
+            if node.name in _TOOLCHAIN_HOOK_METHODS or "toolchain" in node.name.lower():
+                categories.add("toolchain")
         elif isinstance(node, ast.Attribute) and node.attr in _NAMING_TEMPLATE_ATTRS:
-            return True
+            categories.add("naming_attr")
         elif isinstance(node, ast.Name) and node.id in _NAMING_TEMPLATE_ATTRS:
-            return True
+            categories.add("naming_attr")
         elif isinstance(node, ast.Constant) and isinstance(node.value, str):
             if node.value in _NAMING_TEMPLATE_ATTRS:
-                return True
-    return False
+                categories.add("naming_attr")
+    return categories
 
 
-def discover_easyblocks_touching_naming(easyblocks_root: Path | None) -> list[str]:
-    if easyblocks_root is None or not easyblocks_root.is_dir():
-        return []
-    matched: set[str] = set()
-    for path in sorted(easyblocks_root.rglob("*.py")):
+def installed_easyblocks_root() -> Path | None:
+    """The importable ``easybuild.easyblocks`` package, if any."""
+    try:
+        import easybuild.easyblocks as easyblocks
+    except ImportError:
+        return None
+    paths = list(getattr(easyblocks, "__path__", []))
+    return Path(paths[0]) if paths else None
+
+
+def discover_easyblocks_touching_naming(sources: list[Path]) -> dict[str, set[str]]:
+    """Hook categories per easyblock name, from directories and files."""
+    files: list[Path] = []
+    for source in sources:
+        if source.is_dir():
+            files.extend(sorted(source.rglob("*.py")))
+        elif source.is_file():
+            files.append(source)
+    matched: dict[str, set[str]] = {}
+    for path in files:
         try:
             text = path.read_text(encoding="utf-8", errors="ignore")
         except OSError:
@@ -206,13 +245,16 @@ def discover_easyblocks_touching_naming(easyblocks_root: Path | None) -> list[st
         for node in ast.walk(tree):
             if not isinstance(node, ast.ClassDef):
                 continue
-            if _class_touches_naming_or_hooks(node):
-                cls = node.name
-                matched.add(cls)
-                if cls.startswith("EB_"):
-                    matched.add(cls[3:])
-                    matched.add(_decode_eb_class_name(cls))
-    return sorted(matched)
+            categories = _class_hook_categories(node)
+            if not categories:
+                continue
+            cls = node.name
+            names = {cls}
+            if cls.startswith("EB_"):
+                names.update({cls[3:], _decode_eb_class_name(cls)})
+            for name in names:
+                matched.setdefault(name, set()).update(categories)
+    return matched
 
 
 def collect_easyconfig_files(root: Path) -> list[tuple[str, str]]:
@@ -226,7 +268,10 @@ def collect_easyconfig_files(root: Path) -> list[tuple[str, str]]:
     return files
 
 
-def classify_recipe(rel: str, text: str, extra_easyblocks: set[str]) -> tuple[str, bool]:
+def classify_recipe(
+    rel: str, text: str, extra_easyblocks: dict[str, set[str]]
+) -> tuple[str, set[str]]:
+    """The sample bucket and the hook categories that target the recipe."""
     easyblock_match = re.search(
         r"^\s*easyblock\s*=\s*['\"]([^'\"]+)['\"]", text, re.MULTILINE
     )
@@ -238,13 +283,17 @@ def classify_recipe(rel: str, text: str, extra_easyblocks: set[str]) -> tuple[st
     tc_match = _TOOLCHAIN_RE.search(text)
     tc_name = tc_match.group(1) if tc_match else "system"
 
-    is_targeted = (
-        easyblock in TARGETED_EASYBLOCKS
-        or easyblock in extra_easyblocks
-        or (not easyblock and software_name in extra_easyblocks)
-        or bool(re.search(r"^\s*version_?prefix\s*=", text, re.MULTILINE))
-        or bool(re.search(r"^\s*(?:modaltsoftname|env_mod_alt_soft_name)\s*=", text, re.MULTILINE))
-    )
+    categories: set[str] = set()
+    if easyblock in TARGETED_EASYBLOCKS:
+        categories.add(f"easyblock:{easyblock}")
+    if easyblock:
+        categories.update(extra_easyblocks.get(easyblock, set()))
+    else:
+        categories.update(extra_easyblocks.get(software_name, set()))
+    if re.search(r"^\s*version_?prefix\s*=", text, re.MULTILINE):
+        categories.add("versionprefix")
+    if re.search(r"^\s*(?:modaltsoftname|env_mod_alt_soft_name)\s*=", text, re.MULTILINE):
+        categories.add("modaltsoftname")
 
     if easyblock == "Toolchain" or tc_name in ("foss", "intel", "gompi", "gfbf", "NVHPC"):
         bucket = f"tc:{tc_name}"
@@ -258,7 +307,7 @@ def classify_recipe(rel: str, text: str, extra_easyblocks: set[str]) -> tuple[st
         bucket = "deps"
     else:
         bucket = f"tc:{tc_name}"
-    return bucket, is_targeted
+    return bucket, categories
 
 
 def select_sample(
@@ -266,20 +315,19 @@ def select_sample(
     seed: int,
     sample_size: int,
     include_targeted: bool,
-    extra_easyblocks: list[str],
+    extra_easyblocks: dict[str, set[str]],
 ) -> tuple[list[str], dict[str, str]]:
     files = collect_easyconfig_files(root)
-    extra_set = set(extra_easyblocks)
     buckets: dict[str, list[str]] = {}
     targeted: list[str] = []
     reasons: dict[str, str] = {}
 
     for rel, text in files:
-        bucket, is_targeted = classify_recipe(rel, text, extra_set)
+        bucket, categories = classify_recipe(rel, text, extra_easyblocks)
         buckets.setdefault(bucket, []).append(rel)
-        if include_targeted and is_targeted:
+        if include_targeted and categories:
             targeted.append(rel)
-            reasons[rel] = "targeted"
+            reasons[rel] = "targeted:" + ",".join(sorted(categories))
 
     rng = random.Random(seed)
     chosen: list[str] = []
@@ -338,14 +386,11 @@ def format_eb_dep_module(dep: dict) -> str:
     return f"{name}/{vprefix}{version}{tc_part}{vsuffix}"
 
 
-def extract_easybuild_truth(
-    root: Path,
-    rels: list[str],
-    reasons: dict[str, str],
+def add_easybuild_to_path(
     framework_dir: Path | None,
     easyblocks_dir: Path | None,
     extra_pythonpath: list[str],
-) -> dict:
+) -> None:
     for entry in reversed(extra_pythonpath):
         if entry and entry not in sys.path:
             sys.path.insert(0, entry)
@@ -355,39 +400,130 @@ def extract_easybuild_truth(
             if resolved not in sys.path:
                 sys.path.insert(0, resolved)
 
+
+_MODULE_LOAD_RE = re.compile(r"^\s*module load (\S+)\s*$", re.MULTILINE)
+_EBVERSION_RE = re.compile(r'^setenv\s+EBVERSION\S*\s+"([^"]*)"', re.MULTILINE)
+
+
+def easyblock_module_truth(easyconfig_class, get_easyblock_class, path: Path) -> dict:
+    """What the recipe's easyblock writes into its module file.
+
+    The easyblock gets a fresh easyconfig, since its constructor and hooks
+    may change it. The toolchain is handed the recipe's dependencies as
+    ``prepare_step`` would, without loading their modules.
+    """
+    ec = easyconfig_class(str(path), validate=False)
+    app_class = get_easyblock_class(ec["easyblock"], name=ec["name"])
+    app = app_class(ec)
     try:
-        from easybuild.framework.easyconfig import easyconfig as eb_easyconfig
-        from easybuild.framework.easyconfig.easyconfig import EasyConfig
-        from easybuild.tools import modules as eb_modules
+        app.gen_installdir()
+        # make_module_dep recognises the top of the flat module tree by
+        # comparing existing paths.
+        os.makedirs(app.installdir_mod, exist_ok=True)
+        app.toolchain.dependencies = list(app.cfg.dependencies())
+        module_dir = Path(app.make_module_step(fake=True))
+        module_file = Path(app.module_generator.get_module_filepath(fake=True))
+        text = module_file.read_text(encoding="utf-8")
+    finally:
+        app.close_log()
+    versions = _EBVERSION_RE.findall(text)
+    return {
+        "easyblock": app_class.__name__,
+        "generated_module_name": module_file.relative_to(module_dir).as_posix(),
+        "generated_module_loads": _MODULE_LOAD_RE.findall(text),
+        "generated_module_version": versions[0] if len(versions) == 1 else None,
+    }
+
+
+def extract_easybuild_truth(
+    root: Path,
+    rels: list[str],
+    reasons: dict[str, str],
+    include_easyblocks: list[Path],
+) -> dict:
+    try:
+        from easybuild.base import fancylogger
+        from easybuild.framework.easyconfig.easyconfig import EasyConfig, get_easyblock_class
+        from easybuild.tools.build_log import EasyBuildError
         from easybuild.tools.module_naming_scheme.easybuild_mns import EasyBuildMNS
+        from easybuild.tools.modules import NoModulesTool
+        from easybuild.tools.options import set_up_configuration
     except ImportError as exc:
         raise SystemExit(
             "EasyBuild is not importable; pass --truth-json or --easybuild-framework. "
             f"Import error: {exc}"
         ) from exc
 
+    # A ModulesTool subclass is a --modules-tool choice. This one never
+    # loads a module, so the truth does not depend on the host's modules.
+    class EbStackAuditModulesTool(NoModulesTool):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.log = fancylogger.getLogger(self.__class__.__name__, fname=False)
+            self.supports_depends_on = False
+            self.supports_tcl_getenv = False
+            self.supports_tcl_check_group = False
+            self.supports_safe_auto_load = False
+            self.supports_extensions = False
+
+        def load(self, modules, *args, **kwargs):
+            if modules:
+                raise EasyBuildError("the parity audit loads no modules: %s", modules)
+
+    workdir = Path(tempfile.mkdtemp(prefix="parity-audit-"))
+    # EasyBuild helpers such as det_pylibdir run a bare `python`. Only that
+    # name is bound to this interpreter; its own directory may hold eb.
+    shim_bin = workdir / "bin"
+    shim_bin.mkdir()
+    (shim_bin / "python").symlink_to(sys.executable)
+    orig_path = os.environ.get("PATH")
+    # EasyBuild points tempfile at its own tmpdir under workdir.
+    orig_tempdir = tempfile.tempdir
+    os.environ["PATH"] = os.pathsep.join(filter(None, [str(shim_bin), orig_path]))
+    try:
+        return _easybuild_truth(
+            root, rels, reasons, include_easyblocks, workdir, EbStackAuditModulesTool
+        )
+    finally:
+        if orig_path is None:
+            os.environ.pop("PATH", None)
+        else:
+            os.environ["PATH"] = orig_path
+        tempfile.tempdir = orig_tempdir
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+def _easybuild_truth(
+    root: Path,
+    rels: list[str],
+    reasons: dict[str, str],
+    include_easyblocks: list[Path],
+    workdir: Path,
+    modules_tool: type,
+) -> dict:
+    from easybuild.framework.easyconfig.easyconfig import EasyConfig, get_easyblock_class
+    from easybuild.tools.module_naming_scheme.easybuild_mns import EasyBuildMNS
     from easybuild.tools.options import set_up_configuration
 
+    args = [
+        f"--robot={root}",
+        f"--modules-tool={modules_tool.__name__}",
+        # EasyBuild requires Lmod for Lua module files.
+        "--module-syntax=Tcl",
+        f"--prefix={workdir}",
+        f"--tmpdir={workdir / 'tmp'}",
+        "--ignore-osdeps",
+    ]
+    if include_easyblocks:
+        args.append(
+            "--include-easyblocks=" + ",".join(str(p.resolve()) for p in include_easyblocks)
+        )
     # A partial configuration would leave robot, module and environment
     # settings at defaults the truth was never meant to use.
     try:
-        set_up_configuration(
-            args=[f"--robot={root}"],
-            silent=True,
-        )
+        set_up_configuration(args=args, silent=True)
     except (Exception, SystemExit) as exc:
         raise SystemExit(f"parity_audit: EasyBuild configuration failed: {exc}") from exc
-
-    if hasattr(eb_modules, "NoModulesTool") and hasattr(eb_easyconfig, "modules_tool"):
-        orig_modules_tool = eb_easyconfig.modules_tool
-
-        def _safe_modules_tool(*args, **kwargs):
-            try:
-                return orig_modules_tool(*args, **kwargs)
-            except Exception:
-                return eb_modules.NoModulesTool(testing=True)
-
-        eb_easyconfig.modules_tool = _safe_modules_tool
 
     mns = EasyBuildMNS()
     results = []
@@ -421,8 +557,15 @@ def extract_easybuild_truth(
                 exts = ec.get("exts_list", resolve=False) or []
             except TypeError:
                 exts = ec.get("exts_list") or []
+            hooks = {}
+            if reasons.get(rel, "").startswith("targeted"):
+                try:
+                    hooks = easyblock_module_truth(EasyConfig, get_easyblock_class, path)
+                except Exception as exc:
+                    raise RuntimeError(f"easyblock hooks: {exc}") from exc
             results.append(
                 {
+                    **hooks,
                     "rel": rel,
                     "bucket": reasons.get(rel, ""),
                     "ok": True,
@@ -598,6 +741,40 @@ def _same_dep(left: dict, right: dict) -> bool:
     return not (left_tc and right_tc and left_tc != right_tc)
 
 
+def expected_module_loads(stack: dict) -> list:
+    """The loads EasyBuild writes for eb-stack's answer: the toolchain
+    module unless SYSTEM, then each runtime dependency in recipe order."""
+    loads: list = []
+    toolchain = stack.get("toolchain") or {}
+    name = str(toolchain.get("name") or "")
+    if name and name.lower() != "system":
+        loads.append(f"{name}/{toolchain.get('version') or ''}")
+    loads.extend(
+        dep.get("resolved_module") for dep in stack.get("deps", []) if dep.get("kind") == "runtime"
+    )
+    return loads
+
+
+def compare_generated_module(rel: str, truth: dict, stack: dict) -> list[dict]:
+    """Compare the module file a targeted recipe's easyblock wrote."""
+    found = []
+    for field, easybuild, eb_stack in (
+        ("generated_module_name", truth.get("generated_module_name"), stack.get("module_name")),
+        ("generated_module_loads", truth.get("generated_module_loads"), expected_module_loads(stack)),
+        ("generated_module_version", truth.get("generated_module_version"), stack.get("version")),
+    ):
+        if easybuild != eb_stack:
+            found.append(
+                {
+                    "rel": rel,
+                    "field": field,
+                    "easybuild": easybuild,
+                    "eb_stack": eb_stack,
+                }
+            )
+    return found
+
+
 def compare_parity(truth_rows: list[dict], stack_rows: list[dict]) -> dict:
     by_rel_stack = {row["rel"]: row for row in stack_rows}
     mismatches: list[dict] = []
@@ -687,6 +864,9 @@ def compare_parity(truth_rows: list[dict], stack_rows: list[dict]) -> dict:
                     "eb_stack": st_exts,
                 }
             )
+
+        if "generated_module_name" in truth:
+            mismatches.extend(compare_generated_module(rel, truth, stack))
 
         # External modules have no toolchain, so they pair only with a stack
         # dependency that says it is external. The marker is required: an
@@ -799,14 +979,18 @@ def main(argv: list[str]) -> int:
     if not root.is_dir():
         raise SystemExit(f"easyconfigs root is not a directory: {root}")
 
-    extra_easyblocks = discover_easyblocks_touching_naming(args.easybuild_easyblocks)
-
     if args.truth_json is not None:
         truth_doc = json.loads(args.truth_json.read_text(encoding="utf-8"))
         truth_rows = truth_doc["results"]
         rels = [row["rel"] for row in truth_rows]
         reasons = {row["rel"]: row.get("bucket", "truth") for row in truth_rows}
     else:
+        add_easybuild_to_path(args.easybuild_framework, args.easybuild_easyblocks, args.pythonpath)
+        easyblock_sources = [args.easybuild_easyblocks or installed_easyblocks_root()]
+        extra_easyblocks = discover_easyblocks_touching_naming(
+            [source for source in easyblock_sources if source is not None]
+            + args.include_easyblocks
+        )
         rels, reasons = select_sample(
             root=root,
             seed=args.seed,
@@ -818,9 +1002,7 @@ def main(argv: list[str]) -> int:
             root=root,
             rels=rels,
             reasons=reasons,
-            framework_dir=args.easybuild_framework,
-            easyblocks_dir=args.easybuild_easyblocks,
-            extra_pythonpath=args.pythonpath,
+            include_easyblocks=args.include_easyblocks,
         )
         truth_rows = truth_doc["results"]
         if args.emit_truth is not None:
@@ -836,7 +1018,7 @@ def main(argv: list[str]) -> int:
     report["seed"] = args.seed
     report["sample_size"] = args.sample_size
     report["selected_count"] = len(rels)
-    report["targeted_count"] = sum(1 for r in reasons.values() if r == "targeted")
+    report["targeted_count"] = sum(1 for r in reasons.values() if r.startswith("targeted"))
 
     if args.out is not None:
         args.out.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")

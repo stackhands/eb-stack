@@ -1,0 +1,11 @@
+easyblock = 'PythonPackage'
+
+name = 'PyPkg'
+version = '1.0'
+homepage = 'https://example.org/'
+description = 'A PythonPackage recipe, whose module step asks a bare python for its library directory'
+toolchain = SYSTEM
+
+options = {'modulename': False}
+
+moduleclass = 'tools'
