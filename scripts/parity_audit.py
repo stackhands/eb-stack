@@ -364,15 +364,17 @@ def extract_easybuild_truth(
             f"Import error: {exc}"
         ) from exc
 
-    try:
-        from easybuild.tools.options import set_up_configuration
+    from easybuild.tools.options import set_up_configuration
 
+    # A partial configuration would leave robot, module and environment
+    # settings at defaults the truth was never meant to use.
+    try:
         set_up_configuration(
             args=[f"--robot={root}"],
             silent=True,
         )
-    except Exception:
-        pass
+    except (Exception, SystemExit) as exc:
+        raise SystemExit(f"parity_audit: EasyBuild configuration failed: {exc}") from exc
 
     if hasattr(eb_modules, "NoModulesTool") and hasattr(eb_easyconfig, "modules_tool"):
         orig_modules_tool = eb_easyconfig.modules_tool

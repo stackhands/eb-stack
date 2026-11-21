@@ -375,6 +375,48 @@ fn parity_audit_resolves_with_easybuild_framework() {
 }
 
 #[test]
+fn parity_audit_fails_closed_when_easybuild_configuration_fails() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let ec_root = temp.path().join("easyconfigs");
+    let py_stub = temp.path().join("py_stub");
+    let report = temp.path().join("report.json");
+    generate_fixture_tree(&ec_root);
+    generate_easybuild_python_stub(&py_stub);
+    write_file(
+        &py_stub.join("easybuild/tools/options.py"),
+        r#"ROBOT_ROOT = None
+
+def set_up_configuration(args=None, silent=True):
+    raise RuntimeError("broken EasyBuild configuration file")
+"#,
+    );
+
+    let output = Command::new("python3")
+        .arg(repo_root().join("scripts/parity_audit.py"))
+        .arg("--easyconfigs")
+        .arg(&ec_root)
+        .arg("--sample-size")
+        .arg("4")
+        .arg("--pythonpath")
+        .arg(&py_stub)
+        .arg("--eb-stack")
+        .arg(env!("CARGO_BIN_EXE_eb-stack"))
+        .arg("--out")
+        .arg(&report)
+        .output()
+        .expect("run parity_audit.py");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!output.status.success(), "stderr:\n{stderr}");
+    assert!(
+        stderr.contains("EasyBuild configuration failed")
+            && stderr.contains("broken EasyBuild configuration file"),
+        "stderr:\n{stderr}"
+    );
+    assert!(!report.exists(), "no report from a partial configuration");
+}
+
+#[test]
 fn parity_audit_exits_nonzero_on_mismatch_and_dropped_exts() {
     let temp = tempfile::tempdir().expect("tempdir");
     let ec_root = temp.path().join("easyconfigs");
