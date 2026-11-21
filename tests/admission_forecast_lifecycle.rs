@@ -274,3 +274,142 @@ fn failed_scheduler_snapshot_preserves_every_reservation_even_with_drop_stale() 
         assert_eq!(fixture.read("12")["phase"], "admitted");
     }
 }
+
+#[test]
+fn invalid_ts_rejects_with_exit_2_before_locking_mutating_or_running_commands() {
+    let fixture = Fixture::new();
+    fixture.record("12", Some("forecast"));
+    let before = std::fs::read(fixture.reservations.join("12.json")).unwrap();
+    let quota_ran = fixture._directory.path().join("quota-ran");
+    let live_ran = fixture._directory.path().join("live-ran");
+    let quota_cmd = format!(
+        "touch '{}' && printf '{{\"inodes_available\":500}}'",
+        quota_ran.display()
+    );
+    let live_cmd = format!("touch '{}' && printf '11,12\\n'", live_ran.display());
+
+    let output = Command::new(env!("CARGO_BIN_EXE_eb-stack"))
+        .args(["stack", "admit", "--quota-cmd", &quota_cmd])
+        .args(["--live-jobs-cmd", &live_cmd])
+        .arg("--reservations")
+        .arg(&fixture.reservations)
+        .args(["--job", "12", "--footprint", "300", "--margin", "100"])
+        .arg("--lock")
+        .arg(&fixture.lock)
+        .args(["--lock-kind", "posix", "--ts", "not-a-time"])
+        .output()
+        .unwrap();
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(2), "{stderr}");
+    assert!(
+        stderr.contains("--ts not-a-time"),
+        "expected --ts flag name in stderr: {stderr}"
+    );
+    assert!(
+        !stderr.contains("--generated-at"),
+        "unexpected --generated-at in stderr: {stderr}"
+    );
+    assert!(
+        !fixture.lock.exists(),
+        "lock file should not be created on rejected usage"
+    );
+    assert_eq!(
+        std::fs::read(fixture.reservations.join("12.json")).unwrap(),
+        before,
+        "forecast record must stay untouched when usage is rejected"
+    );
+    assert!(
+        !quota_ran.exists(),
+        "--quota-cmd must not run when usage is rejected"
+    );
+    assert!(
+        !live_ran.exists(),
+        "--live-jobs-cmd must not run when usage is rejected"
+    );
+}
+
+#[test]
+fn invalid_request_sources_reject_before_locking_or_mutating_records() {
+    let fixture = Fixture::new();
+    fixture.record("12", Some("forecast"));
+    let before = std::fs::read(fixture.reservations.join("12.json")).unwrap();
+
+    let cases = [
+        eb_stack::inode_budget::AdmitRequest {
+            quota_json: None,
+            quota_cmd: None,
+            lock: Some(fixture.lock.clone()),
+            lock_kind: eb_stack::inode_budget::LockKind::Posix,
+            unknown_reserve: 0,
+            drop_stale: false,
+            footprint: 300,
+            job: "12".into(),
+            reservations: fixture.reservations.clone(),
+            margin: 100,
+            live_jobs: Some(vec!["12".into()]),
+            live_jobs_cmd: None,
+            ts: None,
+        },
+        eb_stack::inode_budget::AdmitRequest {
+            quota_json: Some(fixture.quota.clone()),
+            quota_cmd: Some(r#"printf '{"inodes_available":500}'"#.into()),
+            lock: Some(fixture.lock.clone()),
+            lock_kind: eb_stack::inode_budget::LockKind::Posix,
+            unknown_reserve: 0,
+            drop_stale: false,
+            footprint: 300,
+            job: "12".into(),
+            reservations: fixture.reservations.clone(),
+            margin: 100,
+            live_jobs: Some(vec!["12".into()]),
+            live_jobs_cmd: None,
+            ts: None,
+        },
+        eb_stack::inode_budget::AdmitRequest {
+            quota_json: Some(fixture.quota.clone()),
+            quota_cmd: None,
+            lock: Some(fixture.lock.clone()),
+            lock_kind: eb_stack::inode_budget::LockKind::Posix,
+            unknown_reserve: 0,
+            drop_stale: false,
+            footprint: 300,
+            job: "12".into(),
+            reservations: fixture.reservations.clone(),
+            margin: 100,
+            live_jobs: Some(vec!["12".into()]),
+            live_jobs_cmd: Some("printf '12\\n'".into()),
+            ts: None,
+        },
+    ];
+
+    for request in cases {
+        let error = eb_stack::inode_budget::run_stack_admit(&request)
+            .err()
+            .expect("invalid request should fail");
+        assert!(
+            error
+                .downcast_ref::<eb_stack::cli_parse::UsageError>()
+                .is_some(),
+            "expected usage error, got: {error:#}"
+        );
+        assert!(
+            !fixture.lock.exists(),
+            "lock file should not be created on rejected request"
+        );
+        assert_eq!(
+            std::fs::read(fixture.reservations.join("12.json")).unwrap(),
+            before,
+            "forecast record must stay untouched on rejected request"
+        );
+    }
+
+    let bad_kind = eb_stack::inode_budget::LockKind::parse("lockf")
+        .expect_err("unknown lock kind should fail");
+    assert!(
+        bad_kind
+            .downcast_ref::<eb_stack::cli_parse::UsageError>()
+            .is_some(),
+        "expected usage error from LockKind::parse, got: {bad_kind:#}"
+    );
+}
