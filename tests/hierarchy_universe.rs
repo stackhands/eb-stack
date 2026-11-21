@@ -638,6 +638,32 @@ fn stack_solve_and_recipe_check_agree_on_the_cbc_slice() {
     );
 }
 
+#[test]
+fn bare_module_version_does_not_select_system() {
+    let zlib = eb_stack::resolve_easyconfig_str(
+        "name = 'zlib'\nversion = '1.3.1'\nversionsuffix = '-special'\ntoolchain = SYSTEM\n",
+    )
+    .unwrap();
+    let app = eb_stack::resolve_easyconfig_str(
+        "name = 'App'\nversion = '1.0'\n\
+         toolchain = {'name': 'foss', 'version': '2025b'}\n\
+         dependencies = [('zlib', '1.3.1-special')]\n",
+    )
+    .unwrap();
+    let hierarchy = eb_stack::hierarchy::ToolchainHierarchy {
+        parent: app.toolchain.clone(),
+        members: vec![zlib.toolchain.clone(), app.toolchain.clone()],
+    };
+    assert!(
+        !eb_stack::candidate_matches_dep_for_recipe(
+            &zlib.to_candidate(),
+            &app.dependencies[0],
+            &hierarchy,
+        ),
+        "a bare module version selected SYSTEM"
+    );
+}
+
 /// On the pinned develop tree EasyBuild takes zlib 1.3.1 and bzip2 1.0.8 at
 /// GCCcore-14.3.0 for Cbc (first hit of the parent-first subtoolchain search).
 #[test]

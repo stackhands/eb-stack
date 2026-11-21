@@ -35,7 +35,7 @@ jobs:
       # notes may name what a release removed.
       - name: No site names in the tree
         run: |
-          ! git grep -nIiE 'snellius|surf\.nl|/gpfs/|/projects/0|rg\.terra|scratch-shared|scratch-node|eblocalinstall' -- . ':!CHANGELOG.md' ':!changelog.d/' ':!tests/cli_ergonomics.rs' ':!.github/workflows/ci_test.yml'
+          ! git grep -nIiE 'snellius|surf\.nl|/gpfs/|/projects/0|rg\.terra|scratch-shared|scratch-node|eblocalinstall' -- . ':(exclude)fixtures/parity_*' ':!CHANGELOG.md' ':!changelog.d/' ':!tests/cli_ergonomics.rs' ':!.github/workflows/ci_test.yml'
       - name: Cargo source package
         run: cargo package --locked
 

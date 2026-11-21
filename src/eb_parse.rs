@@ -414,14 +414,10 @@ impl<'a> Parser<'a> {
                 break;
             }
             if self.at_control_keyword() {
-                // `if ARCH == 'x86_64':` is how a recipe adds a dependency or
-                // a source name for one architecture, and the `else` is the
-                // name used on every other architecture. Kaleido's wheel and
-                // Go's tarball are selected that way. The guard was
-                // unmodeled, which dropped the assignment, and a `sources`
-                // line that then names the missing variable cannot be planned
-                // with.
-                if self.take_arch_branch() {
+                // `if ARCH == 'x86_64':` and decidable guards over parsed
+                // recipe variables (e.g. `if 'gpu' in local_extras:`) are how
+                // recipes conditionally append dependencies or sources.
+                if self.take_known_branch() {
                     continue;
                 }
                 self.skip_compound_or_line();
@@ -478,26 +474,26 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
-    /// Enter the `if` / `elif` / `else` arm that applies to this architecture.
+    /// Enter the `if` / `elif` / `else` arm that holds for this recipe.
     ///
-    /// Returns false, with the cursor unmoved, when the statement is not an
-    /// `ARCH` comparison this parser can decide. The caller then skips the
-    /// whole compound, which is what a guard written for something other
-    /// than the architecture needs.
+    /// Returns false, with the cursor unmoved, when the statement is not a
+    /// branch condition this parser can decide (`ARCH` comparisons or
+    /// boolean/membership/equality predicates over already-assigned recipe
+    /// variables). The caller then skips the whole compound.
     ///
     /// A true arm is left for the main loop to parse. A false arm is
     /// skipped, and so is every later `elif` that is also false. `else`
     /// runs only when no earlier arm matched. A true `if` does not consume
     /// the `else`: the main loop skips that compound on the next iteration,
-    /// so the other architecture's assignment is not also applied.
-    fn take_arch_branch(&mut self) -> bool {
+    /// so the other branch's assignment is not also applied.
+    fn take_known_branch(&mut self) -> bool {
         let Some(header) = self.peek_header() else {
             return false;
         };
         if !header.starts_with("if ") {
             return false;
         }
-        let Some(holds) = arch_header_holds(&header, &self.arch) else {
+        let Some(holds) = self.branch_header_holds(&header) else {
             return false;
         };
         self.consume_line();
@@ -510,12 +506,12 @@ impl<'a> Parser<'a> {
             let Some(header) = self.peek_header() else {
                 break;
             };
-            if header == "else:" {
+            if strip_trailing_py_comment(&header).trim() == "else:" {
                 self.consume_line();
                 return true;
             }
             if header.starts_with("elif ") {
-                let Some(holds) = arch_header_holds(&header, &self.arch) else {
+                let Some(holds) = self.branch_header_holds(&header) else {
                     break;
                 };
                 self.consume_line();
@@ -528,6 +524,123 @@ impl<'a> Parser<'a> {
             break;
         }
         true
+    }
+
+    fn branch_header_holds(&self, header: &str) -> Option<bool> {
+        if let Some(holds) = arch_header_holds(header, &self.arch) {
+            return Some(holds);
+        }
+        let stripped = strip_trailing_py_comment(header);
+        let trimmed = stripped.trim();
+        let body = trimmed.strip_suffix(':')?.trim();
+        let cond = body
+            .strip_prefix("if ")
+            .or_else(|| body.strip_prefix("elif "))?
+            .trim();
+        if cond.is_empty() {
+            return None;
+        }
+        let mut sub = Parser::new(cond, &self.arch);
+        sub.env = self.env.clone();
+        sub.env
+            .entry("ARCH".into())
+            .or_insert_with(|| Value::Str(self.arch.clone()));
+        let val = sub.parse_cond_or().ok()?;
+        sub.skip_ws();
+        if sub.pos != sub.src.len() {
+            return None;
+        }
+        value_truthy(&val)
+    }
+
+    fn eat_kw(&mut self, kw: &[u8]) -> bool {
+        self.skip_ws();
+        let rest = &self.src[self.pos..];
+        if !rest.starts_with(kw) {
+            return false;
+        }
+        let next = self.src.get(self.pos + kw.len()).copied();
+        if next.is_some_and(|c| c.is_ascii_alphanumeric() || c == b'_') {
+            return false;
+        }
+        self.pos += kw.len();
+        true
+    }
+
+    fn parse_cond_or(&mut self) -> Result<Value, String> {
+        let mut left = self.parse_cond_and()?;
+        while self.eat_kw(b"or") {
+            let right = self.parse_cond_and()?;
+            let lhs = value_truthy(&left).ok_or_else(|| self.err("untruthy lhs in 'or'"))?;
+            let rhs = value_truthy(&right).ok_or_else(|| self.err("untruthy rhs in 'or'"))?;
+            left = Value::Bool(lhs || rhs);
+        }
+        Ok(left)
+    }
+
+    fn parse_cond_and(&mut self) -> Result<Value, String> {
+        let mut left = self.parse_cond_not()?;
+        while self.eat_kw(b"and") {
+            let right = self.parse_cond_not()?;
+            let lhs = value_truthy(&left).ok_or_else(|| self.err("untruthy lhs in 'and'"))?;
+            let rhs = value_truthy(&right).ok_or_else(|| self.err("untruthy rhs in 'and'"))?;
+            left = Value::Bool(lhs && rhs);
+        }
+        Ok(left)
+    }
+
+    fn parse_cond_not(&mut self) -> Result<Value, String> {
+        if self.eat_kw(b"not") {
+            let inner = self.parse_cond_not()?;
+            let b = value_truthy(&inner).ok_or_else(|| self.err("untruthy operand in 'not'"))?;
+            return Ok(Value::Bool(!b));
+        }
+        self.parse_cond_cmp()
+    }
+
+    fn parse_cond_cmp(&mut self) -> Result<Value, String> {
+        let left = self.parse_cond_atom()?;
+        self.skip_ws();
+        if self.src[self.pos..].starts_with(b"==") {
+            self.pos += 2;
+            let right = self.parse_cond_atom()?;
+            return Ok(Value::Bool(left == right));
+        }
+        if self.src[self.pos..].starts_with(b"!=") {
+            self.pos += 2;
+            let right = self.parse_cond_atom()?;
+            return Ok(Value::Bool(left != right));
+        }
+        if self.eat_kw(b"in") {
+            let right = self.parse_cond_atom()?;
+            return Ok(Value::Bool(value_in(&left, &right)?));
+        }
+        let saved = self.pos;
+        if self.eat_kw(b"not") {
+            if self.eat_kw(b"in") {
+                let right = self.parse_cond_atom()?;
+                return Ok(Value::Bool(!value_in(&left, &right)?));
+            }
+            self.pos = saved;
+        }
+        Ok(left)
+    }
+
+    fn parse_cond_atom(&mut self) -> Result<Value, String> {
+        self.skip_ws();
+        if self.peek() == Some(b'(') {
+            let saved = self.pos;
+            self.pos += 1;
+            if let Ok(val) = self.parse_cond_or() {
+                self.skip_ws();
+                if self.peek() == Some(b')') {
+                    self.pos += 1;
+                    return Ok(val);
+                }
+            }
+            self.pos = saved;
+        }
+        self.parse_expr()
     }
 
     /// The current line, trimmed, without consuming it.
@@ -2215,6 +2328,67 @@ fn unquote_py(text: &str) -> Option<&str> {
     }
 }
 
+fn strip_trailing_py_comment(line: &str) -> &str {
+    let bytes = line.as_bytes();
+    let mut in_s = false;
+    let mut in_d = false;
+    let mut escape = false;
+    for (idx, &b) in bytes.iter().enumerate() {
+        if escape {
+            escape = false;
+            continue;
+        }
+        if in_s {
+            if b == b'\\' {
+                escape = true;
+            } else if b == b'\'' {
+                in_s = false;
+            }
+        } else if in_d {
+            if b == b'\\' {
+                escape = true;
+            } else if b == b'"' {
+                in_d = false;
+            }
+        } else if b == b'\'' {
+            in_s = true;
+        } else if b == b'"' {
+            in_d = true;
+        } else if b == b'#' {
+            return &line[..idx];
+        }
+    }
+    line
+}
+
+fn value_truthy(val: &Value) -> Option<bool> {
+    match val {
+        Value::Bool(b) => Some(*b),
+        Value::Str(s) => Some(!s.is_empty()),
+        Value::Int(i) => Some(*i != 0),
+        Value::None => Some(false),
+        Value::List(items) | Value::Tuple(items) => Some(!items.is_empty()),
+        Value::Dict(entries) => Some(!entries.is_empty()),
+    }
+}
+
+fn value_in(needle: &Value, haystack: &Value) -> Result<bool, String> {
+    match haystack {
+        Value::List(items) | Value::Tuple(items) => Ok(items.iter().any(|item| item == needle)),
+        Value::Str(s) => match needle {
+            Value::Str(sub) => Ok(s.contains(sub.as_str())),
+            other => Err(format!(
+                "'in <str>' requires string left operand, got {other:?}"
+            )),
+        },
+        Value::Dict(entries) => match needle {
+            Value::Str(key) => Ok(entries.iter().any(|(k, _)| k == key)),
+            _ => Ok(false),
+        },
+        other => Err(format!("unsupported 'in' container: {other:?}")),
+    }
+}
+
 /// Whether `if ARCH == 'x86_64':`, `elif ARCH != "aarch64":` or
 /// `if ARCH in ('aarch64', 'riscv64'):` is true for `arch`.
 ///
@@ -2222,7 +2396,7 @@ fn unquote_py(text: &str) -> Option<&str> {
 /// can decide. Spelling aliases (`aarch64` / `AArch64`, `POWER`) count as
 /// the same machine.
 fn arch_header_holds(header: &str, arch: &str) -> Option<bool> {
-    let header = header.trim();
+    let header = strip_trailing_py_comment(header).trim();
     let header = header.strip_suffix(':')?.trim();
     let rest = header
         .strip_prefix("if ")
@@ -4317,18 +4491,36 @@ fn candidate_matches_dep_core(
         && !got_vs.is_empty()
         && crate::version::requirement_is_exact(&req)
         && matches_req(&format!("{stem}{got_vs}"), &req);
-    if !stem_match && !combined_match {
+    let module_ver = if crate::hierarchy::is_system_toolchain(&c.toolchain) {
+        format!("{stem}{got_vs}")
+    } else {
+        format!(
+            "{stem}-{}-{}{got_vs}",
+            c.toolchain.name, c.toolchain.version
+        )
+    };
+    let full_module_match = dep.toolchain.is_none()
+        && dep.versionsuffix.is_none()
+        && crate::version::requirement_is_exact(&req)
+        && matches_req(&module_ver, &req);
+    if !stem_match && !combined_match && !full_module_match {
         return false;
     }
     if let Some(tc) = &dep.toolchain {
         return crate::hierarchy::toolchains_match(&c.toolchain, tc);
     }
+    // A version that spells the whole toolchain-suffixed module names one
+    // build, wherever it sits, as `build_order::within_generation` accepts;
+    // SYSTEM still needs a SYSTEM recipe, as there.
+    if full_module_match && module_ver != stem {
+        return hierarchy.is_none_or(|h| {
+            crate::hierarchy::bare_dependency_allows_system(&h.parent, &c.toolchain)
+        });
+    }
     // Implicit dependencies minimize within the generation, but do not fall
     // through to SYSTEM unless the recipe itself uses SYSTEM.
     if let Some(h) = hierarchy {
-        return h.contains(&c.toolchain)
-            && (crate::hierarchy::is_system_toolchain(&h.parent)
-                || !crate::hierarchy::is_system_toolchain(&c.toolchain));
+        return h.admits_bare_dependency_candidate(&c.toolchain);
     }
     true
 }

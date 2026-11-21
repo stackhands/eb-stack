@@ -493,6 +493,22 @@ impl ToolchainHierarchy {
     pub fn contains(&self, tc: &Toolchain) -> bool {
         self.members.iter().any(|m| toolchains_match(m, tc))
     }
+
+    /// Whether a bare dependency tuple may select `candidate`.
+    ///
+    /// A non-SYSTEM recipe searches its own generation but does not fall
+    /// through to SYSTEM. A SYSTEM recipe may select SYSTEM.
+    pub fn admits_bare_dependency_candidate(&self, candidate: &Toolchain) -> bool {
+        self.contains(candidate) && bare_dependency_allows_system(&self.parent, candidate)
+    }
+}
+
+/// Whether a bare dependency may select `candidate` based on SYSTEM status.
+///
+/// Hierarchy membership remains the caller's responsibility: some callers
+/// select a hierarchy level separately by distance.
+pub fn bare_dependency_allows_system(parent: &Toolchain, candidate: &Toolchain) -> bool {
+    is_system_toolchain(parent) || !is_system_toolchain(candidate)
 }
 
 /// EasyBuild / parser SYSTEM toolchains: name `system` (any case), version empty or `system`.
@@ -589,7 +605,7 @@ pub fn known_hierarchy(parent: &Toolchain) -> Option<ToolchainHierarchy> {
 /// a brand-new `foss-2026.1` must not require shipping a new fixture).
 ///
 /// Members mirror EasyBuild's `get_toolchain_hierarchy` order for foss-family
-/// generations: `system < GCCcore < GCC < gompi < gfbf < parent`. A bare
+/// generations: `system < GCCcore < GCC < gfbf < gompi < parent`. A bare
 /// dependency tuple does not reach `system`; recipe check omits it from
 /// the member list and, when the candidate is a SYSTEM recipe, says to
 /// write `('Name', 'version', '', SYSTEM)`. Intermediate
@@ -619,13 +635,37 @@ fn append_postorder(
     }
 }
 
+fn joined_candidate_version(c: &Candidate) -> String {
+    format!(
+        "{}{}",
+        c.version,
+        c.versionsuffix.as_deref().unwrap_or_default()
+    )
+}
+
+fn is_compiler_or_toolchain_definition(c: &Candidate) -> bool {
+    if !is_system_toolchain(&c.toolchain) {
+        return false;
+    }
+    if c.easyblock.as_deref() == Some("Toolchain") {
+        return true;
+    }
+    c.moduleclass.as_deref() == Some("compiler")
+        && (c.name == "GCCcore"
+            || c.dependencies
+                .iter()
+                .chain(c.builddependencies.iter())
+                .any(|d| matches!(d.name.as_str(), "GCCcore" | "GCC" | "nvidia-compilers")))
+}
+
 /// A hierarchy read off the tree, for a toolchain no family rule covers.
 ///
 /// A toolchain is defined by a recipe, and that recipe's dependencies say what
 /// it is made of: `iimpi` names `intel-compilers` and `impi`, and
 /// `intel-compilers` names the `GCCcore` it was built on. Any dependency that
-/// other recipes in the tree use *as* a toolchain is a subtoolchain, and any
-/// same-version toolchain definition whose pins are a strict subset of the
+/// other recipes in the tree use *as* a toolchain (or whose own `SYSTEM` recipe
+/// is a toolchain / GCCcore-based compiler definition) is a subtoolchain, and
+/// any same-version toolchain definition whose pins are a strict subset of the
 /// parent's (such as `iimkl` inside `intel` or `lfbf` inside `lfoss`) is an
 /// intermediate composite, so the chain can be walked without hardcoding the
 /// family and emitted in topological subtoolchain-first order.
@@ -648,6 +688,11 @@ fn derive_hierarchy_by_walking(
         let Some(definition) = cands
             .iter()
             .find(|c| c.name == current.name && c.version == current.version)
+            .or_else(|| {
+                cands.iter().find(|c| {
+                    c.name == current.name && joined_candidate_version(c) == current.version
+                })
+            })
         else {
             continue;
         };
@@ -676,10 +721,29 @@ fn derive_hierarchy_by_walking(
             }
             if let Some(version) = exact_pin_version(&dependency.version_req) {
                 def_pins.insert((dependency.name.as_str(), version));
-                if used_as_toolchain.contains(dependency.name.as_str()) {
+                let full_version = match dependency.versionsuffix.as_deref() {
+                    Some(sfx) if !sfx.is_empty() => format!("{version}{sfx}"),
+                    _ => version.to_string(),
+                };
+                let is_subtoolchain = used_as_toolchain.contains(dependency.name.as_str())
+                    || cands.iter().any(|c| {
+                        c.name == dependency.name
+                            && (c.version == full_version
+                                || joined_candidate_version(c) == full_version)
+                            && is_compiler_or_toolchain_definition(c)
+                    });
+                if is_subtoolchain {
+                    let sub_ver = if full_version != version
+                        && cands.iter().any(|c| {
+                            c.name == dependency.name && joined_candidate_version(c) == full_version
+                        }) {
+                        full_version
+                    } else {
+                        version.to_string()
+                    };
                     push_sub(Toolchain {
                         name: dependency.name.clone(),
-                        version: version.to_string(),
+                        version: sub_ver,
                     });
                 }
             }
@@ -741,7 +805,7 @@ pub fn derive_hierarchy_from_candidates(
     parent: &Toolchain,
     cands: &[Candidate],
 ) -> Option<ToolchainHierarchy> {
-    const COMPOSITES: [&str; 3] = ["gompi", "gfbf", "foss"];
+    const COMPOSITES: [&str; 3] = ["gfbf", "gompi", "foss"];
     if NVIDIA_COMPOSITES.contains(&parent.name.as_str()) {
         // NVHPC-family composite (NVHPC, nvompi, nvofbf): a different chain
         // from the GCC family, walked in its own function.
@@ -822,8 +886,8 @@ pub fn derive_hierarchy_from_candidates(
     })
 }
 
-/// NVHPC-family composites, lowest rank first, mirroring the GCC family's
-/// `gompi < gfbf < foss`. `nvompi` is NVHPC + OpenMPI; `nvofbf` adds FlexiBLAS,
+/// NVHPC-family composites, lowest rank first, mirroring EasyBuild's `SUBTOOLCHAIN`
+/// precedence (`nvompi < nvofbf`). `nvompi` is NVHPC + OpenMPI; `nvofbf` adds FlexiBLAS,
 /// FFTW and ScaLAPACK on top.
 /// Whether `version` names the same release as `spelled`, allowing `spelled` to
 /// carry a versionsuffix the candidate states separately.
@@ -2030,8 +2094,8 @@ mod tests {
                 "system",
                 "GCCcore-15.2.0",
                 "GCC-15.2.0",
-                "gompi-2099a",
                 "gfbf-2099a",
+                "gompi-2099a",
                 "foss-2099a",
             ]
         );
