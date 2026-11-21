@@ -560,8 +560,8 @@ fn parity_audit_reports_dropped_extensions_missing_toolchains_and_extra_deps() {
             "dropped_exts": true,
             "skipped_statements": ["exts_list"],
             "deps": [
-                {"kind": "runtime", "name": "zlib", "resolved_module": null},
-                {"kind": "build", "name": "CMake", "resolved_module": "CMake/3.29.3"}
+                {"kind": "runtime", "name": "zlib", "resolved_module": null, "external_module": false},
+                {"kind": "build", "name": "CMake", "resolved_module": "CMake/3.29.3", "external_module": false}
             ]
         }]
     });
@@ -748,13 +748,15 @@ fn parity_audit_ignores_external_modules_on_both_sides() {
                     "version_req": "==1.3.1",
                     "toolchain_name": "GCCcore",
                     "toolchain_version": "13.3.0",
-                    "resolved_module": "zlib/1.3.1-GCCcore-13.3.0"
+                    "resolved_module": "zlib/1.3.1-GCCcore-13.3.0",
+                    "external_module": false
                 },
                 {
                     "kind": "build",
                     "name": "Ninja",
                     "version_req": "==1.11.1",
-                    "resolved_module": "Ninja/1.11.1"
+                    "resolved_module": "Ninja/1.11.1",
+                    "external_module": false
                 }
             ]
         }]
@@ -836,7 +838,8 @@ fn parity_audit_reports_extra_dependency_version_and_toolchain() {
                     "version_req": "==1.3.1",
                     "toolchain_name": "GCCcore",
                     "toolchain_version": "13.3.0",
-                    "resolved_module": "zlib/1.3.1-GCCcore-13.3.0"
+                    "resolved_module": "zlib/1.3.1-GCCcore-13.3.0",
+                    "external_module": false
                 },
                 {
                     "kind": "runtime",
@@ -844,7 +847,8 @@ fn parity_audit_reports_extra_dependency_version_and_toolchain() {
                     "version_req": "==1.2.13",
                     "toolchain_name": "GCCcore",
                     "toolchain_version": "12.3.0",
-                    "resolved_module": "zlib/1.2.13-GCCcore-12.3.0"
+                    "resolved_module": "zlib/1.2.13-GCCcore-12.3.0",
+                    "external_module": false
                 },
                 {
                     "kind": "runtime",
@@ -852,7 +856,8 @@ fn parity_audit_reports_extra_dependency_version_and_toolchain() {
                     "version_req": "==1.3.1",
                     "toolchain_name": "GCC",
                     "toolchain_version": "13.3.0",
-                    "resolved_module": "zlib/1.3.1-GCC-13.3.0"
+                    "resolved_module": "zlib/1.3.1-GCC-13.3.0",
+                    "external_module": false
                 }
             ]
         }]
@@ -901,4 +906,154 @@ fn parity_audit_reports_extra_dependency_version_and_toolchain() {
         "extra toolchain under zlib must be reported: {extra_modules:?}"
     );
     assert!(!output.status.success());
+}
+
+fn run_comparator(
+    temp: &Path,
+    ec_root: &Path,
+    truth: &serde_json::Value,
+    stack: &serde_json::Value,
+) -> (std::process::Output, serde_json::Value) {
+    let truth_path = temp.join("truth.json");
+    let stack_path = temp.join("stack.json");
+    let report_path = temp.join("report.json");
+    write_file(&truth_path, &serde_json::to_string_pretty(truth).unwrap());
+    write_file(&stack_path, &serde_json::to_string_pretty(stack).unwrap());
+    let output = Command::new("python3")
+        .arg(repo_root().join("scripts/parity_audit.py"))
+        .arg("--easyconfigs")
+        .arg(ec_root)
+        .arg("--truth-json")
+        .arg(&truth_path)
+        .arg("--eb-stack-json")
+        .arg(&stack_path)
+        .arg("--out")
+        .arg(&report_path)
+        .output()
+        .expect("run parity_audit.py");
+    let report = serde_json::from_str(&std::fs::read_to_string(&report_path).unwrap()).unwrap();
+    (output, report)
+}
+
+fn tool_a_truth(dependencies: serde_json::Value) -> serde_json::Value {
+    serde_json::json!({
+        "results": [{
+            "rel": "t/ToolA/ToolA-1.0-foss-2024a-extra.eb",
+            "ok": true,
+            "module_name": "ToolA/pre-1.0-foss-2024a-extra",
+            "versionsuffix": "-extra",
+            "exts_list": [
+                {"name": "extone", "version": "0.1.0"},
+                {"name": "exttwo", "version": "0.2.0"}
+            ],
+            "dependencies": dependencies,
+            "builddependencies": []
+        }]
+    })
+}
+
+fn tool_a_stack(deps: serde_json::Value) -> serde_json::Value {
+    serde_json::json!({
+        "recipes": [{
+            "rel": "t/ToolA/ToolA-1.0-foss-2024a-extra.eb",
+            "ok": true,
+            "module_name": "ToolA/pre-1.0-foss-2024a-extra",
+            "versionsuffix": "-extra",
+            "exts_count": 2,
+            "dropped_exts": false,
+            "deps": deps
+        }]
+    })
+}
+
+#[test]
+fn parity_audit_reports_an_external_module_resolved_in_tree() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let ec_root = temp.path().join("easyconfigs");
+    generate_fixture_tree(&ec_root);
+    let truth = tool_a_truth(serde_json::json!([{
+        "name": "cray-mpich",
+        "version": "8.1.25",
+        "external_module": true,
+        "resolved_module": "cray-mpich/8.1.25",
+        "toolchain_name": ""
+    }]));
+    let stack = tool_a_stack(serde_json::json!([{
+        "kind": "runtime",
+        "name": "cray-mpich",
+        "version_req": "==8.1.25",
+        "toolchain_name": "GCCcore",
+        "toolchain_version": "13.3.0",
+        "resolved_module": "cray-mpich/8.1.25-GCCcore-13.3.0",
+        "external_module": false
+    }]));
+
+    let (output, report) = run_comparator(temp.path(), &ec_root, &truth, &stack);
+    let fields = mismatch_fields(&report);
+    assert_eq!(
+        fields,
+        ["runtime_dep:cray-mpich:external_resolved_in_tree"],
+        "{report}"
+    );
+    assert!(!output.status.success());
+}
+
+#[test]
+fn parity_audit_requires_the_external_marker_on_every_stack_dep() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let ec_root = temp.path().join("easyconfigs");
+    generate_fixture_tree(&ec_root);
+    let zlib = serde_json::json!({
+        "name": "zlib",
+        "version": "1.3.1",
+        "toolchain_name": "GCCcore",
+        "toolchain_version": "13.3.0",
+        "external_module": false,
+        "resolved_module": "zlib/1.3.1-GCCcore-13.3.0"
+    });
+    let truth = tool_a_truth(serde_json::json!([zlib]));
+    let stack = tool_a_stack(serde_json::json!([{
+        "kind": "runtime",
+        "name": "zlib",
+        "version_req": "==1.3.1",
+        "toolchain_name": "GCCcore",
+        "toolchain_version": "13.3.0",
+        "resolved_module": "zlib/1.3.1-GCCcore-13.3.0"
+    }]));
+
+    let (output, report) = run_comparator(temp.path(), &ec_root, &truth, &stack);
+    assert_eq!(
+        mismatch_fields(&report),
+        ["runtime_dep:zlib:missing_external_marker"],
+        "{report}"
+    );
+    assert!(!output.status.success());
+}
+
+#[test]
+fn recipe_parity_audit_marks_every_dependency_record() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let ec_root = temp.path().join("easyconfigs");
+    generate_fixture_tree(&ec_root);
+    let recipes = temp.path().join("recipes.txt");
+    write_file(&recipes, "t/ToolA/ToolA-1.0-foss-2024a-extra.eb\n");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_eb-stack"))
+        .args(["recipe", "parity-audit", "--easyconfigs"])
+        .arg(&ec_root)
+        .arg("--recipes-file")
+        .arg(&recipes)
+        .output()
+        .expect("run eb-stack recipe parity-audit");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let doc: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let deps = doc["recipes"][0]["deps"].as_array().unwrap();
+    assert_eq!(deps.len(), 2, "{doc}");
+    for dep in deps {
+        assert_eq!(dep["external_module"], false, "{dep}");
+    }
 }

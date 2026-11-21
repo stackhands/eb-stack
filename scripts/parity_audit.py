@@ -11,10 +11,12 @@ that touch module naming (``ModuleRC``, ``Toolchain``, ``Bundle``,
 Compares ``eb-stack recipe parity-audit`` against EasyBuild (or a
 pre-generated ``--truth-json`` oracle) across parse status, dropped
 ``exts_list``, ``module_name``, ``versionsuffix``, ``exts_count``, and
-nearest-hierarchy-level dependency resolution. External modules are
-left out of both sides. A dependency matches on name and version, and
-on toolchain when both sides name one. Exits 0 on full parity and 1
-on any mismatch or error.
+nearest-hierarchy-level dependency resolution. Every eb-stack
+dependency record carries an ``external_module`` marker; an EasyBuild
+external module pairs only with a dependency marked external, so an
+external module resolved to an in-tree build is a mismatch. A dependency
+matches on name and version, and on toolchain when both sides name one.
+Exits 0 on full parity and 1 on any mismatch or error.
 """
 
 from __future__ import annotations
@@ -686,17 +688,53 @@ def compare_parity(truth_rows: list[dict], stack_rows: list[dict]) -> dict:
                 }
             )
 
-        # External modules have no toolchain. Drop them on both sides so an
-        # eb-stack external dependency is not reported as extra.
-        stack_deps = [dep for dep in stack.get("deps", []) if not _is_external(dep)]
-        external_truth: list[dict] = []
+        # External modules have no toolchain, so they pair only with a stack
+        # dependency that says it is external. The marker is required: an
+        # identity match alone would hide an external module eb-stack
+        # resolved to an ordinary in-tree build.
+        stack_deps: list[dict] = []
+        stack_external: list[dict] = []
+        for dep in stack.get("deps", []):
+            kind = str(dep.get("kind") or "")
+            if not isinstance(dep.get("external_module"), bool):
+                mismatches.append(
+                    {
+                        "rel": rel,
+                        "field": f"{kind}_dep:{dep.get('name')}:missing_external_marker",
+                        "easybuild": None,
+                        "eb_stack": dep.get("resolved_module"),
+                    }
+                )
+            (stack_external if _is_external(dep) else stack_deps).append(dep)
+        external_truth: dict[str, list[dict]] = {"runtime": [], "build": []}
         truth_by_kind: dict[str, list[dict]] = {"runtime": [], "build": []}
         for kind, field in (("runtime", "dependencies"), ("build", "builddependencies")):
             for dep in truth.get(field, []):
                 if _is_external(dep):
-                    external_truth.append(dep)
+                    external_truth[kind].append(dep)
                     continue
                 truth_by_kind[kind].append(dep)
+
+        for kind, deps in external_truth.items():
+            for dep in deps:
+                if any(
+                    other.get("kind") == kind and _same_dep(dep, other) for other in stack_external
+                ):
+                    continue
+                in_tree = [
+                    other.get("resolved_module")
+                    for other in stack_deps
+                    if other.get("kind") == kind and _same_dep(dep, other)
+                ]
+                mismatches.append(
+                    {
+                        "rel": rel,
+                        "field": f"{kind}_dep:{dep['name']}:"
+                        + ("external_resolved_in_tree" if in_tree else "external_missing"),
+                        "easybuild": dep.get("resolved_module") or dep["name"],
+                        "eb_stack": in_tree,
+                    }
+                )
 
         def _stack_for(kind: str, dep: dict) -> list[dict]:
             return [
@@ -731,9 +769,13 @@ def compare_parity(truth_rows: list[dict], stack_rows: list[dict]) -> dict:
                     )
         for dep in stack.get("deps", []):
             kind = str(dep.get("kind") or "")
-            if _is_external(dep) or any(_same_dep(dep, other) for other in external_truth):
+            if _is_external(dep):
+                if any(_same_dep(dep, other) for other in external_truth.get(kind, [])):
+                    continue
+            elif any(_same_dep(dep, other) for other in truth_by_kind.get(kind, [])):
                 continue
-            if any(_same_dep(dep, other) for other in truth_by_kind.get(kind, [])):
+            elif any(_same_dep(dep, other) for other in external_truth.get(kind, [])):
+                # Already reported as external_resolved_in_tree.
                 continue
             mismatches.append(
                 {

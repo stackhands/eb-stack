@@ -1642,6 +1642,11 @@ pub struct ParityDepResolution {
     pub toolchain_version: String,
     /// Selected dependency module name (`Name/full_version`), if found.
     pub resolved_module: Option<String>,
+    /// Whether the dependency is an EasyBuild external module. eb-stack
+    /// refuses a recipe that lists one (`EXTERNAL_MODULE` does not parse),
+    /// so every record it emits is an in-tree resolution and says so; the
+    /// comparator never has to guess it from the dependency's identity.
+    pub external_module: bool,
 }
 
 /// Pre-indexed candidate table for resolving dependencies across a tree.
@@ -1681,6 +1686,7 @@ impl<'a> ParityTreeIndex<'a> {
                     toolchain_name: toolchain.map(|tc| tc.name.clone()).unwrap_or_default(),
                     toolchain_version: toolchain.map(|tc| tc.version.clone()).unwrap_or_default(),
                     resolved_module: matched.map(|found| module_name(&ModuleKey::of(found))),
+                    external_module: false,
                 });
             }
         }
