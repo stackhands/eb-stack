@@ -335,6 +335,12 @@ class StubEasyBlock:
         self.toolchain = _Toolchain()
         self.module_generator = _ModuleGenerator(self)
 
+    def post_init(self):
+        pass
+
+    def update_config_template_run_step(self):
+        pass
+
     def gen_installdir(self):
         self.installdir_mod = tempfile.mkdtemp()
 
@@ -600,6 +606,57 @@ fn parity_audit_runs_python_easyblocks_with_its_own_interpreter() {
     assert_eq!(
         truth["results"][0]["generated_module_name"], "PyPkg/1.0",
         "the PythonPackage easyblock must write the module: {truth}"
+    );
+    assert!(
+        output.status.success(),
+        "stdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+}
+
+/// Targeted easyblocks get the preparation `eb --module-only --force` gives
+/// them before `make_module_step`, so modules that resolve
+/// `%(installdir)s`, read the parallelism or expect no installation are
+/// audited instead of failing.
+#[test]
+fn parity_audit_prepares_targeted_easyblocks_like_easybuild() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let fixture = repo_root().join("fixtures/parity_audit_prepare");
+    let report = temp.path().join("report.json");
+    let python = locked_easybuild_venv(temp.path());
+
+    let mut command = Command::new(&python);
+    command
+        .arg(repo_root().join("scripts/parity_audit.py"))
+        .arg("--easyconfigs")
+        .arg(fixture.join("easyconfigs"))
+        .arg("--sample-size")
+        .arg("0");
+    for easyblock in ["hookinstalled.py", "hookparallel.py", "hooktemplate.py"] {
+        command
+            .arg("--include-easyblocks")
+            .arg(fixture.join("easyblocks").join(easyblock));
+    }
+    let output = command
+        .arg("--eb-stack")
+        .arg(env!("CARGO_BIN_EXE_eb-stack"))
+        .arg("--out")
+        .arg(&report)
+        .output()
+        .expect("run parity_audit.py with easybuild-framework");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let doc: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&report).unwrap_or_default())
+            .unwrap_or(serde_json::Value::Null);
+    assert_eq!(
+        doc["targeted_count"], 3,
+        "stdout:\n{stdout}\nstderr:\n{stderr}\n{doc}"
+    );
+    assert_eq!(
+        doc["mismatches"],
+        serde_json::json!([]),
+        "stdout:\n{stdout}\nstderr:\n{stderr}"
     );
     assert!(
         output.status.success(),

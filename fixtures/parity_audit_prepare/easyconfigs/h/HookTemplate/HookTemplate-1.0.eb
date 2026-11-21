@@ -1,0 +1,6 @@
+name = 'HookTemplate'
+version = '1.0'
+homepage = 'https://example.org/'
+description = 'Its easyblock names a module path through the installdir template'
+toolchain = SYSTEM
+moduleclass = 'tools'

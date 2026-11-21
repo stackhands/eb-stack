@@ -409,17 +409,21 @@ def easyblock_module_truth(easyconfig_class, get_easyblock_class, path: Path) ->
     """What the recipe's easyblock writes into its module file.
 
     The easyblock gets a fresh easyconfig, since its constructor and hooks
-    may change it. The toolchain is handed the recipe's dependencies as
-    ``prepare_step`` would, without loading their modules.
+    may change it, and the preparation ``eb`` gives it before any step:
+    ``post_init`` and the run-step templates such as ``%(installdir)s``.
+    The toolchain is handed the recipe's dependencies as ``prepare_step``
+    would, without loading their modules.
     """
     ec = easyconfig_class(str(path), validate=False)
     app_class = get_easyblock_class(ec["easyblock"], name=ec["name"])
     app = app_class(ec)
     try:
+        app.post_init()
         app.gen_installdir()
         # make_module_dep recognises the top of the flat module tree by
         # comparing existing paths.
         os.makedirs(app.installdir_mod, exist_ok=True)
+        app.update_config_template_run_step()
         app.toolchain.dependencies = list(app.cfg.dependencies())
         module_dir = Path(app.make_module_step(fake=True))
         module_file = Path(app.module_generator.get_module_filepath(fake=True))
@@ -513,6 +517,10 @@ def _easybuild_truth(
         f"--prefix={workdir}",
         f"--tmpdir={workdir / 'tmp'}",
         "--ignore-osdeps",
+        # What `eb --module-only --force` sets; easyblocks such as
+        # EB_GROMACS only write a module for a missing installation then.
+        "--module-only",
+        "--force",
     ]
     if include_easyblocks:
         args.append(
