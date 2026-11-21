@@ -1,0 +1,6 @@
+name = 'FFTW.MPI'
+version = '3.3.10'
+homepage = 'https://example.org/'
+description = 'Its easyblock class name encodes the period in its name'
+toolchain = SYSTEM
+moduleclass = 'numlib'

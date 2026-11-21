@@ -178,16 +178,6 @@ _NAMING_TEMPLATE_ATTRS = frozenset(
 )
 
 
-def _decode_eb_class_name(cls_name: str) -> str:
-    raw = cls_name[3:] if cls_name.startswith("EB_") else cls_name
-    return (
-        raw.replace("_minus_", "-")
-        .replace("_plus_", "+")
-        .replace("_dot_", ".")
-        .replace("_underscore_", "_")
-    )
-
-
 def _class_hook_categories(cls_node: ast.ClassDef) -> set[str]:
     categories: set[str] = set()
     for base in cls_node.bases:
@@ -226,6 +216,13 @@ def installed_easyblocks_root() -> Path | None:
 
 def discover_easyblocks_touching_naming(sources: list[Path]) -> dict[str, set[str]]:
     """Hook categories per easyblock name, from directories and files."""
+    try:
+        from easybuild.tools.filetools import decode_class_name
+    except ImportError as exc:
+        raise SystemExit(
+            "EasyBuild is not importable; pass --truth-json or --easybuild-framework. "
+            f"Import error: {exc}"
+        ) from exc
     files: list[Path] = []
     for source in sources:
         if source.is_dir():
@@ -251,7 +248,7 @@ def discover_easyblocks_touching_naming(sources: list[Path]) -> dict[str, set[st
             cls = node.name
             names = {cls}
             if cls.startswith("EB_"):
-                names.update({cls[3:], _decode_eb_class_name(cls)})
+                names.update({cls[3:], decode_class_name(cls)})
             for name in names:
                 matched.setdefault(name, set()).update(categories)
     return matched
