@@ -25,7 +25,7 @@ For every targeted recipe the oracle instantiates the recipe's easyblock
 and has it write its module file (``make_module_step(fake=True)``), so
 each overridden hook runs. From that file it compares the module name
 (the file's path), the ``module load`` statements against the toolchain
-module and eb-stack's resolved runtime dependencies in order, and the
+module and eb-stack's resolved runtime dependencies (in any order), and the
 ``EBVERSION*`` value against the recipe version. Environment content the
 hooks write (paths, variables) has no eb-stack counterpart and is not
 compared. EasyBuild runs with ``EbStackAuditModulesTool``, which loads
@@ -748,7 +748,9 @@ def _same_dep(left: dict, right: dict) -> bool:
 
 def expected_module_loads(stack: dict) -> list:
     """The loads EasyBuild writes for eb-stack's answer: the toolchain
-    module unless SYSTEM, then each runtime dependency in recipe order."""
+    module unless SYSTEM, and each runtime dependency. Sorted, since a
+    recipe may give its dependencies as a set, which EasyBuild writes in
+    hash order."""
     loads: list = []
     toolchain = stack.get("toolchain") or {}
     name = str(toolchain.get("name") or "")
@@ -757,7 +759,7 @@ def expected_module_loads(stack: dict) -> list:
     loads.extend(
         dep.get("resolved_module") for dep in stack.get("deps", []) if dep.get("kind") == "runtime"
     )
-    return loads
+    return sorted(loads, key=str)
 
 
 def compare_generated_module(rel: str, truth: dict, stack: dict) -> list[dict]:
@@ -765,7 +767,11 @@ def compare_generated_module(rel: str, truth: dict, stack: dict) -> list[dict]:
     found = []
     for field, easybuild, eb_stack in (
         ("generated_module_name", truth.get("generated_module_name"), stack.get("module_name")),
-        ("generated_module_loads", truth.get("generated_module_loads"), expected_module_loads(stack)),
+        (
+            "generated_module_loads",
+            sorted(truth.get("generated_module_loads") or [], key=str),
+            expected_module_loads(stack),
+        ),
         ("generated_module_version", truth.get("generated_module_version"), stack.get("version")),
     ):
         if easybuild != eb_stack:

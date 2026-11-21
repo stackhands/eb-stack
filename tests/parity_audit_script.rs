@@ -1166,6 +1166,33 @@ fn parity_audit_reports_an_external_module_resolved_in_tree() {
 }
 
 #[test]
+fn parity_audit_ignores_the_order_of_generated_module_loads() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let ec_root = temp.path().join("easyconfigs");
+    generate_fixture_tree(&ec_root);
+    let mut truth = tool_a_truth(serde_json::json!([]));
+    let row = &mut truth["results"][0];
+    row["generated_module_name"] = "ToolA/pre-1.0-foss-2024a-extra".into();
+    row["generated_module_loads"] = serde_json::json!(["foss/2024a", "zlib/1.3.1", "bzip2/1.0.8"]);
+    row["generated_module_version"] = "1.0".into();
+    let mut stack = tool_a_stack(serde_json::json!([
+        {"kind": "runtime", "name": "bzip2", "version_req": "==1.0.8", "resolved_module": "bzip2/1.0.8", "external_module": false},
+        {"kind": "runtime", "name": "zlib", "version_req": "==1.3.1", "resolved_module": "zlib/1.3.1", "external_module": false}
+    ]));
+    let recipe = &mut stack["recipes"][0];
+    recipe["toolchain"] = serde_json::json!({"name": "foss", "version": "2024a"});
+    recipe["version"] = "1.0".into();
+    truth["results"][0]["dependencies"] = serde_json::json!([
+        {"name": "zlib", "version": "1.3.1", "toolchain_name": "SYSTEM", "resolved_module": "zlib/1.3.1"},
+        {"name": "bzip2", "version": "1.0.8", "toolchain_name": "SYSTEM", "resolved_module": "bzip2/1.0.8"}
+    ]);
+
+    let (output, report) = run_comparator(temp.path(), &ec_root, &truth, &stack);
+    assert_eq!(report["mismatch_count"], 0, "{report}");
+    assert!(output.status.success(), "{report}");
+}
+
+#[test]
 fn parity_audit_requires_the_external_marker_on_every_stack_dep() {
     let temp = tempfile::tempdir().expect("tempdir");
     let ec_root = temp.path().join("easyconfigs");
