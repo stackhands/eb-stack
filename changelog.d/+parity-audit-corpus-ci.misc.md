@@ -1,0 +1,1 @@
+CI audits a pinned easybuild-easyconfigs corpus (the v5.4.2 release commit, seed 20261120, 100 sampled recipes plus every targeted one) with `scripts/parity-audit-corpus.sh`, from a cached shallow fetch of that commit, and compares the result with `scripts/parity-audit-corpus-baseline.json`.

@@ -1,0 +1,451 @@
+{
+  "easyconfigs_commit": "c8d938afbabac47cd59bfc5279b107155225ef6e",
+  "seed": 20261120,
+  "sample_size": 100,
+  "mismatches": [
+    {
+      "rel": "b/buildenv/buildenv-default-foss-2022a-CUDA-11.7.0.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "b/buildenv/buildenv-default-foss-2022a.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "b/buildenv/buildenv-default-foss-2022b-CUDA-12.0.0.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "b/buildenv/buildenv-default-foss-2022b.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "b/buildenv/buildenv-default-foss-2023a-CUDA-12.1.1.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "b/buildenv/buildenv-default-foss-2023a.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "b/buildenv/buildenv-default-foss-2023b-CUDA-12.4.0.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "b/buildenv/buildenv-default-foss-2023b.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "b/buildenv/buildenv-default-foss-2024a-CUDA-12.6.0.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "b/buildenv/buildenv-default-foss-2024a.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "b/buildenv/buildenv-default-foss-2025a-CUDA-12.8.0.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "b/buildenv/buildenv-default-foss-2025a.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "b/buildenv/buildenv-default-foss-2025b-CUDA-12.9.1.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "b/buildenv/buildenv-default-foss-2025b.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "b/buildenv/buildenv-default-foss-2026.1-CUDA-13.3.0.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "b/buildenv/buildenv-default-foss-2026.1.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "b/buildenv/buildenv-default-intel-2022a.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "b/buildenv/buildenv-default-intel-2022b.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "b/buildenv/buildenv-default-intel-2023a.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "b/buildenv/buildenv-default-intel-2023b.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "b/buildenv/buildenv-default-intel-2024a.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "b/buildenv/buildenv-default-intel-2025a.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "b/buildenv/buildenv-default-intel-2025b.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "b/buildenv/buildenv-default-intel-2026.1.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "b/buildenv/buildenv-default-lfoss-2025b.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "b/buildenv/buildenv-default-lfoss-2026.1.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "b/buildenv/buildenv-default-lmpflf-2026.1.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "b/buildenv/buildenv-default-nvompi-2022.07.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "c/CUDAcompat/CUDAcompat-11.6.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "c/CUDAcompat/CUDAcompat-11.7.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "c/CUDAcompat/CUDAcompat-11.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "c/Clang/Clang-18.1.8-GCCcore-13.3.0-CUDA-12.6.0.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "c/Clang/Clang-18.1.8-GCCcore-13.3.0.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "d/dotNET-Core/dotNET-Core-10.0.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "d/dotNET-Core/dotNET-Core-6.0.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "d/dotNET-Core/dotNET-Core-8.0.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "e/EasyBuild/EasyBuild-0.5.0.0beta1.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "e/EasyBuild/EasyBuild-0.5.0.0beta2.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "e/EasyBuild/EasyBuild-4.3.4.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "e/EasyBuild/EasyBuild-4.4.0.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "e/EasyBuild/EasyBuild-4.4.1.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "e/EasyBuild/EasyBuild-4.4.2.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "e/EasyBuild/EasyBuild-4.5.0.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "e/EasyBuild/EasyBuild-4.5.1.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "e/EasyBuild/EasyBuild-4.5.2.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "e/EasyBuild/EasyBuild-4.5.3.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "e/EasyBuild/EasyBuild-4.5.4.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "e/EasyBuild/EasyBuild-4.5.5.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "e/EasyBuild/EasyBuild-4.6.0.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "e/EasyBuild/EasyBuild-4.6.1.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "e/EasyBuild/EasyBuild-4.6.2.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "e/EasyBuild/EasyBuild-4.7.0.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "e/EasyBuild/EasyBuild-4.7.1.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "e/EasyBuild/EasyBuild-4.7.2.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "e/EasyBuild/EasyBuild-4.8.0.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "e/EasyBuild/EasyBuild-4.8.1.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "e/EasyBuild/EasyBuild-4.8.2.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "e/EasyBuild/EasyBuild-4.9.0.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "e/EasyBuild/EasyBuild-4.9.1.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "e/EasyBuild/EasyBuild-4.9.2.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "e/EasyBuild/EasyBuild-4.9.3.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "e/EasyBuild/EasyBuild-4.9.4.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "e/EasyBuild/EasyBuild-5.0.0.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "e/EasyBuild/EasyBuild-5.1.0.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "e/EasyBuild/EasyBuild-5.1.1.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "e/EasyBuild/EasyBuild-5.1.2.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "e/EasyBuild/EasyBuild-5.2.0.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "e/EasyBuild/EasyBuild-5.2.1.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "e/EasyBuild/EasyBuild-5.3.0.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "e/EasyBuild/EasyBuild-5.3.1.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "e/EasyBuild/EasyBuild-5.4.0.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "e/EasyBuild/EasyBuild-5.4.1.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "i/impi/impi-2021.13.0-intel-compilers-2024.2.0.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "i/impi/impi-2021.15.0-intel-compilers-2025.1.1.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "i/impi/impi-2021.16.1-intel-compilers-2025.2.0.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "i/impi/impi-2021.17.2-intel-compilers-2025.3.3.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "j/Java/Java-11.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "j/Java/Java-15.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "j/Java/Java-16.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "j/Java/Java-17.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "j/Java/Java-19.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "j/Java/Java-21.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "j/Java/Java-23.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "j/Java/Java-25.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "j/Java/Java-8.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "l/LLVM/LLVM-18.1.8-GCCcore-13.3.0.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "l/LLVM/LLVM-19.1.7-GCCcore-13.3.0.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "l/LLVM/LLVM-20.1.4-GCCcore-13.3.0.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "l/LLVM/LLVM-20.1.5-GCCcore-13.2.0.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "l/LLVM/LLVM-20.1.5-GCCcore-13.3.0.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "l/LLVM/LLVM-20.1.7-GCCcore-14.2.0.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "l/LLVM/LLVM-20.1.8-GCCcore-14.3.0.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "l/LLVM/LLVM-21.1.8-GCCcore-15.2.0.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "r/ROCm-LLVM/ROCm-LLVM-19.0.0-GCCcore-14.2.0-ROCm-6.4.1.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "s/STAR-CCM+/STAR-CCM+-2302-r8.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "s/STAR-CCM+/STAR-CCM+-2302.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "s/STAR-CCM+/STAR-CCM+-2310-r8.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "s/STAR-CCM+/STAR-CCM+-2310.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "s/STAR-CCM+/STAR-CCM+-2410-r8.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "s/STAR-CCM+/STAR-CCM+-2410.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "s/STAR-CCM+/STAR-CCM+-24xx-r8.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "s/STAR-CCM+/STAR-CCM+-24xx.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "s/STAR-CCM+/STAR-CCM+-2510-r8.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "s/STAR-CCM+/STAR-CCM+-2602-r8.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "s/STAR-CCM+/STAR-CCM+-2602.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "v/VEP/VEP-107-GCC-11.3.0.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "v/VEP/VEP-111-GCC-12.2.0.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "v/VEP/VEP-113.0-GCC-12.3.0.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "v/VEP/VEP-113.3-GCC-13.3.0.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "v/VEP/VEP-115.2-GCC-13.3.0.eb",
+      "field": "easybuild_error"
+    },
+    {
+      "rel": "v/VEP/VEP-115.2-GCC-14.3.0.eb",
+      "field": "easybuild_error"
+    }
+  ]
+}

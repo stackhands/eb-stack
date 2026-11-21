@@ -714,6 +714,124 @@ fn parity_audit_targets_easyblocks_by_their_decoded_class_names() {
     );
 }
 
+fn git(dir: &Path, args: &[&str]) -> String {
+    let output = Command::new("git")
+        .current_dir(dir)
+        .args([
+            "-c",
+            "commit.gpgsign=false",
+            "-c",
+            "core.hooksPath=/dev/null",
+        ])
+        .args(args)
+        .env("GIT_AUTHOR_NAME", "eb-stack test")
+        .env("GIT_AUTHOR_EMAIL", "test@example.org")
+        .env("GIT_COMMITTER_NAME", "eb-stack test")
+        .env("GIT_COMMITTER_EMAIL", "test@example.org")
+        .output()
+        .expect("run git");
+    assert!(
+        output.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8_lossy(&output.stdout).trim().to_string()
+}
+
+#[test]
+fn parity_audit_corpus_script_audits_the_pinned_commit_against_its_baseline() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let upstream = temp.path().join("upstream");
+    let py_stub = temp.path().join("py_stub");
+    let eblocks = temp.path().join("easyblocks");
+    let cache = temp.path().join("cache");
+    let baseline = temp.path().join("baseline.json");
+    let report = temp.path().join("report.json");
+    generate_fixture_tree(&upstream.join("easybuild/easyconfigs"));
+    generate_easybuild_python_stub(&py_stub);
+    generate_easyblocks_stub(&eblocks);
+    git(&upstream, &["init", "-q"]);
+    git(
+        &upstream,
+        &["config", "uploadpack.allowAnySHA1InWant", "true"],
+    );
+    git(&upstream, &["add", "-A"]);
+    git(&upstream, &["commit", "-q", "-m", "pinned"]);
+    let pinned = git(&upstream, &["rev-parse", "HEAD"]);
+    write_file(&upstream.join("NEWS"), "after the pin\n");
+    git(&upstream, &["add", "-A"]);
+    git(&upstream, &["commit", "-q", "-m", "later"]);
+    write_file(
+        &baseline,
+        &serde_json::to_string_pretty(&serde_json::json!({
+            "easyconfigs_commit": pinned,
+            "seed": 42,
+            "sample_size": 4,
+            "mismatches": []
+        }))
+        .unwrap(),
+    );
+    let checkout = cache.join("easybuild-easyconfigs");
+    let run = || {
+        let output = Command::new("bash")
+            .arg(repo_root().join("scripts/parity-audit-corpus.sh"))
+            .arg(&cache)
+            .arg("--easybuild-easyblocks")
+            .arg(&eblocks)
+            .arg("--pythonpath")
+            .arg(&py_stub)
+            .arg("--eb-stack")
+            .arg(env!("CARGO_BIN_EXE_eb-stack"))
+            .arg("--out")
+            .arg(&report)
+            .env("PARITY_BASELINE", &baseline)
+            .env("EASYCONFIGS_URL", format!("file://{}", upstream.display()))
+            .env("PYTHON", "python3")
+            .output()
+            .expect("run parity-audit-corpus.sh");
+        let doc: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&report).unwrap_or_default())
+                .unwrap_or(serde_json::Value::Null);
+        assert!(
+            output.status.success(),
+            "stdout:\n{}\nstderr:\n{}\n{doc}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        doc
+    };
+
+    let doc = run();
+    assert_eq!(doc["seed"], 42);
+    assert_eq!(doc["sample_size"], 4);
+    assert_eq!(doc["baseline"]["new"], serde_json::json!([]));
+    assert_eq!(git(&checkout, &["rev-parse", "HEAD"]), pinned);
+    assert_eq!(
+        git(&checkout, &["rev-parse", "--is-shallow-repository"]),
+        "true"
+    );
+    assert!(!checkout.join("NEWS").exists());
+
+    write_file(&checkout.join("stray.txt"), "not from upstream\n");
+    run();
+    assert_eq!(git(&checkout, &["rev-parse", "HEAD"]), pinned);
+    assert!(
+        !checkout.join("stray.txt").exists(),
+        "a dirty checkout is fetched again"
+    );
+
+    let committed: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(repo_root().join("scripts/parity-audit-corpus-baseline.json"))
+            .expect("read the corpus baseline"),
+    )
+    .expect("parse the corpus baseline");
+    let commit = committed["easyconfigs_commit"].as_str().unwrap_or_default();
+    assert!(
+        commit.len() == 40 && commit.bytes().all(|b| b.is_ascii_hexdigit()),
+        "the corpus baseline pins a full commit, got {commit:?}"
+    );
+}
+
 #[test]
 fn parity_audit_fails_closed_when_easybuild_configuration_fails() {
     let temp = tempfile::tempdir().expect("tempdir");

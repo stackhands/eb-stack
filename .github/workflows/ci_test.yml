@@ -256,6 +256,49 @@ jobs:
             --test source_probe \
             -- --nocapture
 
+  parity-corpus:
+    name: parity audit (pinned easyconfigs corpus)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+      # A virtual environment keeps eb off PATH for the cargo build.
+      - name: Install locked EasyBuild
+        run: |
+          python -m venv "$RUNNER_TEMP/easybuild"
+          "$RUNNER_TEMP/easybuild/bin/python" -m pip install --require-hashes --only-binary :all: \
+            -r scripts/easybuild-build-requirements.txt
+          "$RUNNER_TEMP/easybuild/bin/python" -m pip install --require-hashes --no-build-isolation \
+            -r scripts/easybuild-requirements.txt
+      - name: Corpus pin
+        id: pin
+        run: |
+          python -c 'import json; print("commit=" + json.load(open("scripts/parity-audit-corpus-baseline.json"))["easyconfigs_commit"])' >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/parity-corpus
+          key: parity-corpus-easyconfigs-${{ steps.pin.outputs.commit }}
+      - name: Build eb-stack
+        run: cargo build --locked
+      - name: Audit the pinned corpus against its baseline
+        env:
+          PYTHON: ${{ runner.temp }}/easybuild/bin/python
+        run: |
+          scripts/parity-audit-corpus.sh "${{ runner.temp }}/parity-corpus" \
+            --eb-stack target/debug/eb-stack \
+            --out parity-corpus-report.json
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: parity-corpus-report
+          path: parity-corpus-report.json
+          if-no-files-found: ignore
+
   cli-smoke:
     name: CLI smoke (package bundle + recipe checks)
     runs-on: ubuntu-latest
