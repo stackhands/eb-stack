@@ -172,3 +172,27 @@ fn real_sentieon_system_suffixed_version_req_resolves_jemalloc() {
         .expect("sentieon-genomics/202503.02 in build_order");
     assert!(jemalloc_idx < sentieon_idx);
 }
+
+#[test]
+fn real_sentieon_full_module_pin_passes_recipe_check() {
+    let ec_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("fixtures")
+        .join("parity_sentieon_system_dep")
+        .join("easyconfigs");
+    let cands = parse_easyconfig_tree(&ec_root).unwrap().candidates;
+    let sentieon = resolve_easyconfig_file(
+        &ec_root.join("s/sentieon-genomics/sentieon-genomics-202503.02.eb"),
+    )
+    .unwrap();
+
+    let check = check_recipe_deps(&sentieon, &cands);
+    assert!(
+        check.missing.is_empty(),
+        "('jemalloc', '5.3.0-GCCcore-13.3.0') spells a module build_order resolves: {:?}",
+        check.missing
+    );
+    assert_eq!(
+        check.found,
+        vec!["runtime:jemalloc-5.3.0-GCCcore-13.3.0 (GCCcore-13.3.0)".to_string()]
+    );
+}

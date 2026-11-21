@@ -4509,6 +4509,14 @@ fn candidate_matches_dep_core(
     if let Some(tc) = &dep.toolchain {
         return crate::hierarchy::toolchains_match(&c.toolchain, tc);
     }
+    // A version that spells the whole toolchain-suffixed module names one
+    // build, wherever it sits, as `build_order::within_generation` accepts;
+    // SYSTEM still needs a SYSTEM recipe, as there.
+    if full_module_match && module_ver != stem {
+        return hierarchy.is_none_or(|h| {
+            crate::hierarchy::bare_dependency_allows_system(&h.parent, &c.toolchain)
+        });
+    }
     // Implicit dependencies minimize within the generation, but do not fall
     // through to SYSTEM unless the recipe itself uses SYSTEM.
     if let Some(h) = hierarchy {
