@@ -471,60 +471,27 @@ fn parity_audit_exits_nonzero_on_mismatch_and_dropped_exts() {
     let ec_root = temp.path().join("easyconfigs");
     generate_fixture_tree(&ec_root);
 
-    let truth_path = temp.path().join("bad-truth.json");
-    let truth = serde_json::json!({
-        "results": [
-            {
-                "rel": "t/ToolA/ToolA-1.0-foss-2024a-extra.eb",
-                "bucket": "sample:exts_list",
-                "ok": true,
-                "name": "ToolA",
-                "version": "1.0",
-                "versionprefix": "pre-",
-                "versionsuffix": "-wrong",
-                "toolchain_name": "foss",
-                "toolchain_version": "2024a",
-                "module_name": "ToolA/pre-1.0-foss-2024a-extra",
-                "dependencies": [
-                    {
-                        "name": "zlib",
-                        "version": "1.3.1",
-                        "versionsuffix": "",
-                        "toolchain_name": "GCCcore",
-                        "toolchain_version": "13.3.0",
-                        "external_module": false
-                    }
-                ],
-                "builddependencies": [],
-                "exts_list": [
-                    {"name": "extone", "version": "0.1.0"}
-                ]
-            }
-        ]
-    });
-    write_file(&truth_path, &serde_json::to_string_pretty(&truth).unwrap());
+    let mut truth = tool_a_truth(serde_json::json!([{
+        "name": "zlib",
+        "version": "1.3.1",
+        "versionsuffix": "",
+        "toolchain_name": "GCCcore",
+        "toolchain_version": "13.3.0",
+        "external_module": false
+    }]));
+    truth["results"][0]["versionsuffix"] = "-wrong".into();
+    truth["results"][0]["exts_list"] = serde_json::json!([{"name": "extone", "version": "0.1.0"}]);
 
-    let report_path = temp.path().join("bad-report.json");
-    let output = Command::new("python3")
-        .arg(repo_root().join("scripts/parity_audit.py"))
-        .arg("--easyconfigs")
-        .arg(&ec_root)
-        .arg("--truth-json")
-        .arg(&truth_path)
-        .arg("--eb-stack")
-        .arg(env!("CARGO_BIN_EXE_eb-stack"))
-        .arg("--out")
-        .arg(&report_path)
-        .output()
-        .expect("run parity_audit.py mismatch check");
+    let (output, report) = run_comparator_against_eb_stack(temp.path(), &ec_root, &truth);
 
     assert!(
         !output.status.success(),
         "parity_audit.py must fail when versionsuffix/exts_count disagree"
     );
-    let report: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(&report_path).unwrap()).unwrap();
-    assert_eq!(report["mismatch_count"], 3);
+    assert_eq!(
+        mismatch_fields(&report),
+        ["versionsuffix", "exts_count", "extra_build_dep:CMake"]
+    );
 }
 
 #[test]
@@ -533,67 +500,29 @@ fn parity_audit_reports_dropped_extensions_missing_toolchains_and_extra_deps() {
     let ec_root = temp.path().join("easyconfigs");
     generate_fixture_tree(&ec_root);
 
-    let truth_path = temp.path().join("truth.json");
-    let stack_path = temp.path().join("stack.json");
-    let truth = serde_json::json!({
-        "results": [{
-            "rel": "t/ToolA/ToolA-1.0-foss-2024a-extra.eb",
-            "ok": true,
-            "module_name": "ToolA/pre-1.0-foss-2024a-extra",
-            "versionsuffix": "-extra",
-            "exts_list": [],
-            "dependencies": [{
-                "name": "zlib",
-                "toolchain_name": null,
-                "external_module": false
-            }],
-            "builddependencies": []
-        }]
-    });
-    let stack = serde_json::json!({
-        "recipes": [{
-            "rel": "t/ToolA/ToolA-1.0-foss-2024a-extra.eb",
-            "ok": true,
-            "module_name": "ToolA/pre-1.0-foss-2024a-extra",
-            "versionsuffix": "-extra",
-            "exts_count": 0,
-            "dropped_exts": true,
-            "skipped_statements": ["exts_list"],
-            "deps": [
-                {"kind": "runtime", "name": "zlib", "resolved_module": null, "external_module": false},
-                {"kind": "build", "name": "CMake", "resolved_module": "CMake/3.29.3", "external_module": false}
-            ]
-        }]
-    });
-    write_file(&truth_path, &serde_json::to_string_pretty(&truth).unwrap());
-    write_file(&stack_path, &serde_json::to_string_pretty(&stack).unwrap());
+    let mut truth = tool_a_truth(serde_json::json!([{
+        "name": "zlib",
+        "toolchain_name": null,
+        "external_module": false
+    }]));
+    truth["results"][0]["exts_list"] = serde_json::json!([]);
+    let mut stack = tool_a_stack(serde_json::json!([
+        {"kind": "runtime", "name": "zlib", "resolved_module": null, "external_module": false},
+        {"kind": "build", "name": "CMake", "resolved_module": "CMake/3.29.3", "external_module": false}
+    ]));
+    stack["recipes"][0]["exts_count"] = 0.into();
+    stack["recipes"][0]["dropped_exts"] = true.into();
+    stack["recipes"][0]["skipped_statements"] = serde_json::json!(["exts_list"]);
 
-    let report_path = temp.path().join("report.json");
-    let output = Command::new("python3")
-        .arg(repo_root().join("scripts/parity_audit.py"))
-        .arg("--easyconfigs")
-        .arg(&ec_root)
-        .arg("--truth-json")
-        .arg(&truth_path)
-        .arg("--eb-stack-json")
-        .arg(&stack_path)
-        .arg("--out")
-        .arg(&report_path)
-        .output()
-        .expect("run parity_audit.py mismatch check");
+    let (output, report) = run_comparator(temp.path(), &ec_root, &truth, &stack);
 
     assert!(!output.status.success());
-    let report: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(&report_path).unwrap()).unwrap();
-    let fields: Vec<&str> = report["mismatches"]
-        .as_array()
-        .unwrap()
+    let fields = mismatch_fields(&report);
+    assert!(fields.iter().any(|field| field == "dropped_exts"));
+    assert!(fields
         .iter()
-        .map(|mismatch| mismatch["field"].as_str().unwrap())
-        .collect();
-    assert!(fields.contains(&"dropped_exts"));
-    assert!(fields.contains(&"runtime_dep:zlib:missing_toolchain"));
-    assert!(fields.contains(&"extra_build_dep:CMake"));
+        .any(|field| field == "runtime_dep:zlib:missing_toolchain"));
+    assert!(fields.iter().any(|field| field == "extra_build_dep:CMake"));
 }
 
 #[test]
@@ -694,92 +623,51 @@ fn parity_audit_ignores_external_modules_on_both_sides() {
     let ec_root = temp.path().join("easyconfigs");
     generate_fixture_tree(&ec_root);
 
-    let truth_path = temp.path().join("truth.json");
-    let stack_path = temp.path().join("stack.json");
-    let truth = serde_json::json!({
-        "results": [{
-            "rel": "t/ToolA/ToolA-1.0-foss-2024a-extra.eb",
-            "ok": true,
-            "module_name": "ToolA/pre-1.0-foss-2024a-extra",
-            "versionsuffix": "-extra",
-            "exts_list": [
-                {"name": "extone", "version": "0.1.0"},
-                {"name": "exttwo", "version": "0.2.0"}
-            ],
-            "dependencies": [
-                {
-                    "name": "cray-mpich",
-                    "version": "8.1.25",
-                    "external_module": true,
-                    "resolved_module": "cray-mpich/8.1.25",
-                    "toolchain_name": ""
-                },
-                {
-                    "name": "zlib",
-                    "version": "1.3.1",
-                    "toolchain_name": "GCCcore",
-                    "toolchain_version": "13.3.0",
-                    "external_module": false,
-                    "resolved_module": "zlib/1.3.1-GCCcore-13.3.0"
-                }
-            ],
-            "builddependencies": []
-        }]
-    });
-    let stack = serde_json::json!({
-        "recipes": [{
-            "rel": "t/ToolA/ToolA-1.0-foss-2024a-extra.eb",
-            "ok": true,
-            "module_name": "ToolA/pre-1.0-foss-2024a-extra",
-            "versionsuffix": "-extra",
-            "exts_count": 2,
-            "dropped_exts": false,
-            "deps": [
-                {
-                    "kind": "runtime",
-                    "name": "cray-mpich",
-                    "version_req": "==8.1.25",
-                    "external_module": true,
-                    "resolved_module": "cray-mpich/8.1.25"
-                },
-                {
-                    "kind": "runtime",
-                    "name": "zlib",
-                    "version_req": "==1.3.1",
-                    "toolchain_name": "GCCcore",
-                    "toolchain_version": "13.3.0",
-                    "resolved_module": "zlib/1.3.1-GCCcore-13.3.0",
-                    "external_module": false
-                },
-                {
-                    "kind": "build",
-                    "name": "Ninja",
-                    "version_req": "==1.11.1",
-                    "resolved_module": "Ninja/1.11.1",
-                    "external_module": false
-                }
-            ]
-        }]
-    });
-    write_file(&truth_path, &serde_json::to_string_pretty(&truth).unwrap());
-    write_file(&stack_path, &serde_json::to_string_pretty(&stack).unwrap());
+    let truth = tool_a_truth(serde_json::json!([
+        {
+            "name": "cray-mpich",
+            "version": "8.1.25",
+            "external_module": true,
+            "resolved_module": "cray-mpich/8.1.25",
+            "toolchain_name": ""
+        },
+        {
+            "name": "zlib",
+            "version": "1.3.1",
+            "toolchain_name": "GCCcore",
+            "toolchain_version": "13.3.0",
+            "external_module": false,
+            "resolved_module": "zlib/1.3.1-GCCcore-13.3.0"
+        }
+    ]));
+    let stack = tool_a_stack(serde_json::json!([
+        {
+            "kind": "runtime",
+            "name": "cray-mpich",
+            "version_req": "==8.1.25",
+            "external_module": true,
+            "resolved_module": "cray-mpich/8.1.25"
+        },
+        {
+            "kind": "runtime",
+            "name": "zlib",
+            "version_req": "==1.3.1",
+            "toolchain_name": "GCCcore",
+            "toolchain_version": "13.3.0",
+            "resolved_module": "zlib/1.3.1-GCCcore-13.3.0",
+            "external_module": false
+        },
+        {
+            "kind": "build",
+            "name": "Ninja",
+            "version_req": "==1.11.1",
+            "resolved_module": "Ninja/1.11.1",
+            "external_module": false
+        }
+    ]));
 
-    let report_path = temp.path().join("report.json");
-    let output = Command::new("python3")
-        .arg(repo_root().join("scripts/parity_audit.py"))
-        .arg("--easyconfigs")
-        .arg(&ec_root)
-        .arg("--truth-json")
-        .arg(&truth_path)
-        .arg("--eb-stack-json")
-        .arg(&stack_path)
-        .arg("--out")
-        .arg(&report_path)
-        .output()
-        .expect("run parity_audit.py external-module check");
+    let (output, report) = run_comparator(temp.path(), &ec_root, &truth, &stack);
 
-    let report: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(&report_path).unwrap()).unwrap();
     let fields = mismatch_fields(&report);
     assert!(
         !fields
@@ -800,87 +688,46 @@ fn parity_audit_reports_extra_dependency_version_and_toolchain() {
     let ec_root = temp.path().join("easyconfigs");
     generate_fixture_tree(&ec_root);
 
-    let truth_path = temp.path().join("truth.json");
-    let stack_path = temp.path().join("stack.json");
-    let truth = serde_json::json!({
-        "results": [{
-            "rel": "t/ToolA/ToolA-1.0-foss-2024a-extra.eb",
-            "ok": true,
-            "module_name": "ToolA/pre-1.0-foss-2024a-extra",
-            "versionsuffix": "-extra",
-            "exts_list": [
-                {"name": "extone", "version": "0.1.0"},
-                {"name": "exttwo", "version": "0.2.0"}
-            ],
-            "dependencies": [{
-                "name": "zlib",
-                "version": "1.3.1",
-                "toolchain_name": "GCCcore",
-                "toolchain_version": "13.3.0",
-                "external_module": false,
-                "resolved_module": "zlib/1.3.1-GCCcore-13.3.0"
-            }],
-            "builddependencies": []
-        }]
-    });
-    let stack = serde_json::json!({
-        "recipes": [{
-            "rel": "t/ToolA/ToolA-1.0-foss-2024a-extra.eb",
-            "ok": true,
-            "module_name": "ToolA/pre-1.0-foss-2024a-extra",
-            "versionsuffix": "-extra",
-            "exts_count": 2,
-            "dropped_exts": false,
-            "deps": [
-                {
-                    "kind": "runtime",
-                    "name": "zlib",
-                    "version_req": "==1.3.1",
-                    "toolchain_name": "GCCcore",
-                    "toolchain_version": "13.3.0",
-                    "resolved_module": "zlib/1.3.1-GCCcore-13.3.0",
-                    "external_module": false
-                },
-                {
-                    "kind": "runtime",
-                    "name": "zlib",
-                    "version_req": "==1.2.13",
-                    "toolchain_name": "GCCcore",
-                    "toolchain_version": "12.3.0",
-                    "resolved_module": "zlib/1.2.13-GCCcore-12.3.0",
-                    "external_module": false
-                },
-                {
-                    "kind": "runtime",
-                    "name": "zlib",
-                    "version_req": "==1.3.1",
-                    "toolchain_name": "GCC",
-                    "toolchain_version": "13.3.0",
-                    "resolved_module": "zlib/1.3.1-GCC-13.3.0",
-                    "external_module": false
-                }
-            ]
-        }]
-    });
-    write_file(&truth_path, &serde_json::to_string_pretty(&truth).unwrap());
-    write_file(&stack_path, &serde_json::to_string_pretty(&stack).unwrap());
+    let truth = tool_a_truth(serde_json::json!([{
+        "name": "zlib",
+        "version": "1.3.1",
+        "toolchain_name": "GCCcore",
+        "toolchain_version": "13.3.0",
+        "external_module": false,
+        "resolved_module": "zlib/1.3.1-GCCcore-13.3.0"
+    }]));
+    let stack = tool_a_stack(serde_json::json!([
+        {
+            "kind": "runtime",
+            "name": "zlib",
+            "version_req": "==1.3.1",
+            "toolchain_name": "GCCcore",
+            "toolchain_version": "13.3.0",
+            "resolved_module": "zlib/1.3.1-GCCcore-13.3.0",
+            "external_module": false
+        },
+        {
+            "kind": "runtime",
+            "name": "zlib",
+            "version_req": "==1.2.13",
+            "toolchain_name": "GCCcore",
+            "toolchain_version": "12.3.0",
+            "resolved_module": "zlib/1.2.13-GCCcore-12.3.0",
+            "external_module": false
+        },
+        {
+            "kind": "runtime",
+            "name": "zlib",
+            "version_req": "==1.3.1",
+            "toolchain_name": "GCC",
+            "toolchain_version": "13.3.0",
+            "resolved_module": "zlib/1.3.1-GCC-13.3.0",
+            "external_module": false
+        }
+    ]));
 
-    let report_path = temp.path().join("report.json");
-    let output = Command::new("python3")
-        .arg(repo_root().join("scripts/parity_audit.py"))
-        .arg("--easyconfigs")
-        .arg(&ec_root)
-        .arg("--truth-json")
-        .arg(&truth_path)
-        .arg("--eb-stack-json")
-        .arg(&stack_path)
-        .arg("--out")
-        .arg(&report_path)
-        .output()
-        .expect("run parity_audit.py version identity check");
+    let (output, report) = run_comparator(temp.path(), &ec_root, &truth, &stack);
 
-    let report: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(&report_path).unwrap()).unwrap();
     let fields = mismatch_fields(&report);
     assert!(
         !fields.iter().any(|field| field == "runtime_dep:zlib"),
@@ -914,19 +761,48 @@ fn run_comparator(
     truth: &serde_json::Value,
     stack: &serde_json::Value,
 ) -> (std::process::Output, serde_json::Value) {
-    let truth_path = temp.join("truth.json");
     let stack_path = temp.join("stack.json");
+    write_file(&stack_path, &serde_json::to_string_pretty(stack).unwrap());
+    run_parity_audit(
+        temp,
+        ec_root,
+        truth,
+        &["--eb-stack-json".as_ref(), stack_path.as_os_str()],
+    )
+}
+
+fn run_comparator_against_eb_stack(
+    temp: &Path,
+    ec_root: &Path,
+    truth: &serde_json::Value,
+) -> (std::process::Output, serde_json::Value) {
+    run_parity_audit(
+        temp,
+        ec_root,
+        truth,
+        &[
+            "--eb-stack".as_ref(),
+            env!("CARGO_BIN_EXE_eb-stack").as_ref(),
+        ],
+    )
+}
+
+fn run_parity_audit(
+    temp: &Path,
+    ec_root: &Path,
+    truth: &serde_json::Value,
+    stack_args: &[&std::ffi::OsStr],
+) -> (std::process::Output, serde_json::Value) {
+    let truth_path = temp.join("truth.json");
     let report_path = temp.join("report.json");
     write_file(&truth_path, &serde_json::to_string_pretty(truth).unwrap());
-    write_file(&stack_path, &serde_json::to_string_pretty(stack).unwrap());
     let output = Command::new("python3")
         .arg(repo_root().join("scripts/parity_audit.py"))
         .arg("--easyconfigs")
         .arg(ec_root)
         .arg("--truth-json")
         .arg(&truth_path)
-        .arg("--eb-stack-json")
-        .arg(&stack_path)
+        .args(stack_args)
         .arg("--out")
         .arg(&report_path)
         .output()
