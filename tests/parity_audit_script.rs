@@ -325,3 +325,95 @@ fn parity_audit_exits_nonzero_on_mismatch_and_dropped_exts() {
         serde_json::from_str(&std::fs::read_to_string(&report_path).unwrap()).unwrap();
     assert_eq!(report["mismatch_count"], 2);
 }
+
+#[test]
+fn parity_audit_discovers_all_hook_categories_and_prints_seed() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let ec_root = temp.path().join("easyconfigs");
+    let py_stub = temp.path().join("py_stub");
+    let eblocks = temp.path().join("easyblocks");
+    let report = temp.path().join("report.json");
+
+    generate_fixture_tree(&ec_root);
+    generate_easybuild_python_stub(&py_stub);
+
+    // Add one easyconfig per hook family beyond det_full_module_name.
+    for (rel, name, easyblock) in [
+        ("m/ModReqApp/ModReqApp-1.0.eb", "ModReqApp", None),
+        ("n/ModNameApp/ModNameApp-1.0.eb", "ModNameApp", None),
+        ("v/VerTplApp/VerTplApp-1.0.eb", "VerTplApp", None),
+        ("t/TcHookApp/TcHookApp-1.0.eb", "TcHookApp", None),
+        ("f/FooBar/FooBar-1.0.eb", "Foo-Bar", Some("Foo-Bar")),
+    ] {
+        let eb_line = match easyblock {
+            Some(eb) => format!("easyblock = '{eb}'\n"),
+            None => String::new(),
+        };
+        write_file(
+            &ec_root.join(rel),
+            &format!(
+                "{eb_line}name = '{name}'\nversion = '1.0'\n\
+                 homepage = 'https://example.org/'\ndescription = '{name}'\n\
+                 toolchain = SYSTEM\nmoduleclass = 'tools'\n"
+            ),
+        );
+    }
+
+    write_file(
+        &eblocks.join("easybuild/easyblocks/m/modreqapp.py"),
+        "class EB_ModReqApp:\n    def make_module_req_guess(self):\n        return {}\n",
+    );
+    write_file(
+        &eblocks.join("easybuild/easyblocks/n/modnameapp.py"),
+        "class EB_ModNameApp:\n    def module_name(self):\n        return 'alt'\n",
+    );
+    write_file(
+        &eblocks.join("easybuild/easyblocks/v/vertplapp.py"),
+        "class EB_VerTplApp:\n    def generate_template_values(self):\n        self.cfg.template_values['x'] = '1'\n",
+    );
+    write_file(
+        &eblocks.join("easybuild/easyblocks/t/tchookapp.py"),
+        "class EB_TcHookApp:\n    def comp_family(self):\n        return 'GCC'\n",
+    );
+    write_file(
+        &eblocks.join("easybuild/easyblocks/f/foo_minus_bar.py"),
+        "class EB_Foo_minus_Bar:\n    def det_full_module_name(self, ec):\n        return None\n",
+    );
+
+    let output = Command::new("python3")
+        .arg(repo_root().join("scripts/parity_audit.py"))
+        .arg("--easyconfigs")
+        .arg(&ec_root)
+        .arg("--seed")
+        .arg("20261122")
+        .arg("--sample-size")
+        .arg("0")
+        .arg("--easybuild-easyblocks")
+        .arg(&eblocks)
+        .arg("--pythonpath")
+        .arg(&py_stub)
+        .arg("--eb-stack")
+        .arg(env!("CARGO_BIN_EXE_eb-stack"))
+        .arg("--out")
+        .arg(&report)
+        .output()
+        .expect("run parity_audit.py");
+
+    assert!(
+        output.status.success(),
+        "stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("seed=20261122"),
+        "stdout must print seed=20261122, got: {stdout}"
+    );
+    let doc: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&report).unwrap()).unwrap();
+    // GCCcore/GCC/foss (Toolchain) + ToolA (versionprefix) + BundleB (Bundle) = 5,
+    // plus all 5 hook apps = 10 targeted.
+    assert_eq!(doc["targeted_count"], 10);
+    assert_eq!(doc["checked"], 10);
+}

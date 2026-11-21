@@ -18,6 +18,7 @@ and 1 on any mismatch or error.
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import os
 import random
@@ -56,8 +57,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--sample-size",
         type=int,
-        default=200,
-        help="Target stratified random sample size (default: 200).",
+        default=2000,
+        help="Target stratified random sample size (default: 2000).",
     )
     parser.add_argument(
         "--no-targeted",
@@ -115,6 +116,80 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+_MODULE_NAMING_METHODS = frozenset(
+    {
+        "make_module_req_guess",
+        "det_full_module_name",
+        "module_name",
+        "make_module_req",
+        "make_module_dep",
+        "make_module_extend_modpath",
+        "make_module_step",
+    }
+)
+_VERSION_TEMPLATE_METHODS = frozenset(
+    {
+        "generate_template_values",
+        "update_config_template_run_step",
+        "det_template_values",
+    }
+)
+_TOOLCHAIN_HOOK_METHODS = frozenset(
+    {
+        "comp_family",
+        "mpi_family",
+        "toolchain_family",
+    }
+)
+_NAMING_TEMPLATE_ATTRS = frozenset(
+    {
+        "template_values",
+        "modaltsoftname",
+        "env_mod_alt_soft_name",
+        "versionprefix",
+        "version_prefix",
+        "altroot",
+        "altversion",
+    }
+)
+
+
+def _decode_eb_class_name(cls_name: str) -> str:
+    raw = cls_name[3:] if cls_name.startswith("EB_") else cls_name
+    return (
+        raw.replace("_minus_", "-")
+        .replace("_plus_", "+")
+        .replace("_dot_", ".")
+        .replace("_underscore_", "_")
+    )
+
+
+def _class_touches_naming_or_hooks(cls_node: ast.ClassDef) -> bool:
+    for base in cls_node.bases:
+        if isinstance(base, ast.Name) and base.id == "Toolchain":
+            return True
+        if isinstance(base, ast.Attribute) and base.attr == "Toolchain":
+            return True
+
+    for node in ast.walk(cls_node):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if (
+                node.name in _MODULE_NAMING_METHODS
+                or node.name in _VERSION_TEMPLATE_METHODS
+                or node.name in _TOOLCHAIN_HOOK_METHODS
+                or "toolchain" in node.name.lower()
+            ):
+                return True
+        elif isinstance(node, ast.Attribute) and node.attr in _NAMING_TEMPLATE_ATTRS:
+            return True
+        elif isinstance(node, ast.Name) and node.id in _NAMING_TEMPLATE_ATTRS:
+            return True
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+            if node.value in _NAMING_TEMPLATE_ATTRS:
+                return True
+    return False
+
+
 def discover_easyblocks_touching_naming(easyblocks_root: Path | None) -> list[str]:
     if easyblocks_root is None or not easyblocks_root.is_dir():
         return []
@@ -124,12 +199,19 @@ def discover_easyblocks_touching_naming(easyblocks_root: Path | None) -> list[st
             text = path.read_text(encoding="utf-8", errors="ignore")
         except OSError:
             continue
-        if "def det_full_module_name" in text or "modaltsoftname" in text:
-            for m in re.finditer(r"class\s+(EB_[A-Za-z0-9_]+)\s*\(", text):
-                cls = m.group(1)
+        try:
+            tree = ast.parse(text, filename=str(path))
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ClassDef):
+                continue
+            if _class_touches_naming_or_hooks(node):
+                cls = node.name
+                matched.add(cls)
                 if cls.startswith("EB_"):
                     matched.add(cls[3:])
-                matched.add(cls)
+                    matched.add(_decode_eb_class_name(cls))
     return sorted(matched)
 
 
@@ -149,14 +231,19 @@ def classify_recipe(rel: str, text: str, extra_easyblocks: set[str]) -> tuple[st
         r"^\s*easyblock\s*=\s*['\"]([^'\"]+)['\"]", text, re.MULTILINE
     )
     easyblock = easyblock_match.group(1) if easyblock_match else ""
+    name_match = re.search(
+        r"^\s*name\s*=\s*['\"]([^'\"]+)['\"]", text, re.MULTILINE
+    )
+    software_name = name_match.group(1) if name_match else ""
     tc_match = _TOOLCHAIN_RE.search(text)
     tc_name = tc_match.group(1) if tc_match else "system"
 
     is_targeted = (
         easyblock in TARGETED_EASYBLOCKS
         or easyblock in extra_easyblocks
-        or bool(re.search(r"^\s*versionprefix\s*=", text, re.MULTILINE))
-        or bool(re.search(r"^\s*modaltsoftname\s*=", text, re.MULTILINE))
+        or (not easyblock and software_name in extra_easyblocks)
+        or bool(re.search(r"^\s*version_?prefix\s*=", text, re.MULTILINE))
+        or bool(re.search(r"^\s*(?:modaltsoftname|env_mod_alt_soft_name)\s*=", text, re.MULTILINE))
     )
 
     if easyblock == "Toolchain" or tc_name in ("foss", "intel", "gompi", "gfbf", "NVHPC"):
@@ -637,7 +724,8 @@ def main(argv: list[str]) -> int:
         args.out.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
 
     print(
-        f"parity_audit: seed={report['seed']} checked={report['checked']} "
+        f"parity_audit: seed={report['seed']} "
+        f"checked={report['checked']} "
         f"targeted={report['targeted_count']} "
         f"mismatches={report['mismatch_count']}"
     )
