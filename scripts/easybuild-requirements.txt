@@ -1,0 +1,4 @@
+# Exact EasyBuild pins for the parity audit. tests/parity_audit_script.rs
+# installs this file into a virtual environment of its own.
+easybuild-framework==5.4.2
+easybuild-easyblocks==5.4.2

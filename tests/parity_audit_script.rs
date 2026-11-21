@@ -7,6 +7,26 @@ fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
+fn pinned_easybuild_specs() -> Vec<String> {
+    let path = repo_root().join("scripts/easybuild-requirements.txt");
+    let text = std::fs::read_to_string(&path)
+        .unwrap_or_else(|err| panic!("read {}: {err}", path.display()));
+    let specs: Vec<String> = text
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(str::to_string)
+        .collect();
+    assert!(!specs.is_empty(), "EasyBuild requirements file is empty");
+    for spec in &specs {
+        assert!(
+            spec.contains("=="),
+            "EasyBuild requirement must pin an exact version: {spec}"
+        );
+    }
+    specs
+}
+
 fn mismatch_fields(report: &serde_json::Value) -> Vec<String> {
     report["mismatches"]
         .as_array()
@@ -275,7 +295,8 @@ fn parity_audit_passes_against_generated_easybuild_stub_and_eb_stack() {
 }
 
 /// Resolves a GCCcore dependency and an empty toolchain through the real
-/// EasyBuild framework.
+/// EasyBuild framework, at the versions `scripts/easybuild-requirements.txt`
+/// pins.
 #[test]
 fn parity_audit_resolves_with_easybuild_framework() {
     let temp = tempfile::tempdir().expect("tempdir");
@@ -293,16 +314,11 @@ fn parity_audit_resolves_with_easybuild_framework() {
         venv_status.success(),
         "create EasyBuild virtual environment"
     );
-    let install_status = Command::new(&python)
-        .args([
-            "-m",
-            "pip",
-            "install",
-            "easybuild-framework",
-            "easybuild-easyblocks",
-        ])
-        .status()
-        .expect("install EasyBuild framework");
+    let mut install = Command::new(&python);
+    install
+        .args(["-m", "pip", "install", "--disable-pip-version-check"])
+        .args(pinned_easybuild_specs());
+    let install_status = install.status().expect("install EasyBuild framework");
     assert!(install_status.success(), "install EasyBuild framework");
 
     let output = Command::new(&python)
