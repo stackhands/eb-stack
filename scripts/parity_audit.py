@@ -33,7 +33,11 @@ no modules, and Tcl module syntax; the flat ``EasyBuildMNS`` needs no
 loaded module to place a module file.
 
 Exits 0 on full parity and 1 on any mismatch or error, including an
-EasyBuild configuration or easyblock that fails.
+EasyBuild configuration or easyblock that fails. With ``--baseline`` it
+instead exits 1 only when the mismatches, by recipe and field, differ
+from the baseline's in either direction, or when the baseline was taken
+with another seed or sample size. ``--write-baseline`` records a run's
+mismatches for that.
 """
 
 from __future__ import annotations
@@ -136,6 +140,27 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         type=Path,
         default=None,
         help="Optional path to write the full parity report JSON.",
+    )
+    parser.add_argument(
+        "--baseline",
+        type=Path,
+        default=None,
+        help=(
+            "Expected mismatches for this tree, seed and sample size, as written by "
+            "--write-baseline. Exits non-zero on a mismatch it does not list, on an "
+            "entry that no longer occurs, or when its seed or sample size differ."
+        ),
+    )
+    parser.add_argument(
+        "--write-baseline",
+        type=Path,
+        default=None,
+        help="Write this run's mismatches as a baseline for --baseline.",
+    )
+    parser.add_argument(
+        "--easyconfigs-commit",
+        default=None,
+        help="easybuild-easyconfigs commit of --easyconfigs, recorded by --write-baseline.",
     )
     return parser.parse_args(argv)
 
@@ -984,6 +1009,43 @@ def compare_parity(truth_rows: list[dict], stack_rows: list[dict]) -> dict:
     }
 
 
+def _mismatch_keys(mismatches: list[dict]) -> list[dict]:
+    keys = {(m["rel"], m["field"]) for m in mismatches}
+    return [{"rel": rel, "field": field} for rel, field in sorted(keys)]
+
+
+def write_baseline(path: Path, report: dict, easyconfigs_commit: str | None) -> None:
+    doc = {
+        "easyconfigs_commit": easyconfigs_commit,
+        "seed": report["seed"],
+        "sample_size": report["sample_size"],
+        "mismatches": _mismatch_keys(report["mismatches"]),
+    }
+    path.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
+
+
+def check_baseline(path: Path, report: dict) -> dict:
+    """Diff this run's mismatches, by recipe and field, against a baseline.
+
+    Messages are not compared: EasyBuild errors name temporary paths.
+    """
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    problems = [
+        f"baseline {key} is {doc.get(key)!r}, this run used {report[key]!r}"
+        for key in ("seed", "sample_size")
+        if doc.get(key) != report[key]
+    ]
+    expected = {(m["rel"], m["field"]) for m in doc.get("mismatches", [])}
+    found = {(m["rel"], m["field"]) for m in report["mismatches"]}
+    return {
+        "path": str(path),
+        "easyconfigs_commit": doc.get("easyconfigs_commit"),
+        "problems": problems,
+        "new": _mismatch_keys([{"rel": r, "field": f} for r, f in found - expected]),
+        "resolved": _mismatch_keys([{"rel": r, "field": f} for r, f in expected - found]),
+    }
+
+
 def main(argv: list[str]) -> int:
     args = parse_args(argv)
     root = args.easyconfigs.resolve()
@@ -1031,6 +1093,11 @@ def main(argv: list[str]) -> int:
     report["selected_count"] = len(rels)
     report["targeted_count"] = sum(1 for r in reasons.values() if r.startswith("targeted"))
 
+    if args.baseline is not None:
+        report["baseline"] = check_baseline(args.baseline, report)
+    if args.write_baseline is not None:
+        write_baseline(args.write_baseline, report, args.easyconfigs_commit)
+
     if args.out is not None:
         args.out.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
 
@@ -1045,7 +1112,20 @@ def main(argv: list[str]) -> int:
             f"  MISMATCH {item['rel']} [{item['field']}]: "
             f"easybuild={item['easybuild']!r} eb-stack={item['eb_stack']!r}"
         )
-    return 1 if report["mismatch_count"] > 0 else 0
+    baseline = report.get("baseline")
+    if baseline is None:
+        return 1 if report["mismatch_count"] > 0 else 0
+    for problem in baseline["problems"]:
+        print(f"  BASELINE {problem}")
+    for item in baseline["new"]:
+        print(f"  NEW {item['rel']} [{item['field']}]")
+    for item in baseline["resolved"]:
+        print(f"  RESOLVED {item['rel']} [{item['field']}] (remove it from the baseline)")
+    print(
+        f"parity_audit: baseline new={len(baseline['new'])} "
+        f"resolved={len(baseline['resolved'])}"
+    )
+    return 1 if baseline["problems"] or baseline["new"] or baseline["resolved"] else 0
 
 
 if __name__ == "__main__":

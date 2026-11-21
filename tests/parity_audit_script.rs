@@ -1193,6 +1193,102 @@ fn parity_audit_ignores_the_order_of_generated_module_loads() {
 }
 
 #[test]
+fn parity_audit_holds_mismatches_to_a_baseline() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let ec_root = temp.path().join("easyconfigs");
+    generate_fixture_tree(&ec_root);
+    let truth_path = temp.path().join("truth.json");
+    let stack_path = temp.path().join("stack.json");
+    let baseline = temp.path().join("baseline.json");
+    let report_path = temp.path().join("report.json");
+    let truth = tool_a_truth(serde_json::json!([{
+        "name": "zlib",
+        "version": "1.3.1",
+        "toolchain_name": "GCCcore",
+        "toolchain_version": "13.3.0",
+        "resolved_module": "zlib/1.3.1-GCCcore-13.3.0"
+    }]));
+    write_file(&truth_path, &serde_json::to_string_pretty(&truth).unwrap());
+    write_file(
+        &stack_path,
+        &serde_json::to_string_pretty(&tool_a_stack(serde_json::json!([]))).unwrap(),
+    );
+    let audit = |extra: &[&str]| {
+        let output = Command::new("python3")
+            .arg(repo_root().join("scripts/parity_audit.py"))
+            .arg("--easyconfigs")
+            .arg(&ec_root)
+            .arg("--truth-json")
+            .arg(&truth_path)
+            .arg("--eb-stack-json")
+            .arg(&stack_path)
+            .arg("--out")
+            .arg(&report_path)
+            .args(extra)
+            .output()
+            .expect("run parity_audit.py");
+        let report: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&report_path).unwrap()).unwrap();
+        (output.status.success(), report)
+    };
+    let baseline_arg = baseline.to_str().unwrap();
+
+    let (ok, _) = audit(&[
+        "--write-baseline",
+        baseline_arg,
+        "--easyconfigs-commit",
+        "abc123",
+    ]);
+    assert!(!ok, "a mismatch without --baseline still fails");
+    let written: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&baseline).unwrap()).unwrap();
+    assert_eq!(
+        written,
+        serde_json::json!({
+            "easyconfigs_commit": "abc123",
+            "seed": 20261121,
+            "sample_size": 2000,
+            "mismatches": [{"rel": "t/ToolA/ToolA-1.0-foss-2024a-extra.eb", "field": "runtime_dep:zlib"}]
+        })
+    );
+
+    let (ok, report) = audit(&["--baseline", baseline_arg]);
+    assert!(ok, "{report}");
+    assert_eq!(report["baseline"]["new"], serde_json::json!([]));
+    assert_eq!(report["baseline"]["resolved"], serde_json::json!([]));
+
+    let mut stale = written.clone();
+    stale["mismatches"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!({"rel": "g/Gone/Gone-1.0.eb", "field": "easybuild_error"}));
+    write_file(&baseline, &serde_json::to_string_pretty(&stale).unwrap());
+    let (ok, report) = audit(&["--baseline", baseline_arg]);
+    assert!(!ok, "{report}");
+    assert_eq!(
+        report["baseline"]["resolved"],
+        serde_json::json!([{"rel": "g/Gone/Gone-1.0.eb", "field": "easybuild_error"}])
+    );
+
+    let mut empty = written.clone();
+    empty["mismatches"] = serde_json::json!([]);
+    write_file(&baseline, &serde_json::to_string_pretty(&empty).unwrap());
+    let (ok, report) = audit(&["--baseline", baseline_arg]);
+    assert!(!ok, "{report}");
+    assert_eq!(report["baseline"]["new"], written["mismatches"]);
+
+    let mut reseeded = written.clone();
+    reseeded["seed"] = 7.into();
+    write_file(&baseline, &serde_json::to_string_pretty(&reseeded).unwrap());
+    let (ok, report) = audit(&["--baseline", baseline_arg]);
+    assert!(!ok, "{report}");
+    assert_eq!(
+        report["baseline"]["problems"],
+        serde_json::json!(["baseline seed is 7, this run used 20261121"])
+    );
+}
+
+#[test]
 fn parity_audit_requires_the_external_marker_on_every_stack_dep() {
     let temp = tempfile::tempdir().expect("tempdir");
     let ec_root = temp.path().join("easyconfigs");
