@@ -1,0 +1,6 @@
+name = 'HookExit'
+version = '1.0'
+homepage = 'https://example.org/'
+description = 'Its easyblock exits with status 0 while writing the module'
+toolchain = SYSTEM
+moduleclass = 'tools'

@@ -591,8 +591,8 @@ def _easybuild_truth(
             if reasons.get(rel, "").startswith("targeted"):
                 try:
                     hooks = easyblock_module_truth(EasyConfig, get_easyblock_class, path)
-                except Exception as exc:
-                    raise RuntimeError(f"easyblock hooks: {exc}") from exc
+                except (Exception, SystemExit) as exc:
+                    raise RuntimeError(f"easyblock hooks: {_error_text(exc)}") from exc
             results.append(
                 {
                     **hooks,
@@ -619,16 +619,24 @@ def _easybuild_truth(
                     ],
                 }
             )
-        except Exception as exc:
+        # An easyblock may call sys.exit; that is a failed recipe, not an
+        # empty and successful audit.
+        except (Exception, SystemExit) as exc:
             results.append(
                 {
                     "rel": rel,
                     "bucket": reasons.get(rel, ""),
                     "ok": False,
-                    "error": str(exc),
+                    "error": _error_text(exc),
                 }
             )
     return {"results": results}
+
+
+def _error_text(exc: BaseException) -> str:
+    if isinstance(exc, SystemExit):
+        return f"SystemExit({exc.code!r})"
+    return str(exc)
 
 
 def dep_to_dict(dep) -> dict:

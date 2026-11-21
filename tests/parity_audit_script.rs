@@ -672,6 +672,48 @@ fn parity_audit_prepares_targeted_easyblocks_like_easybuild() {
     );
 }
 
+/// An easyblock that calls `sys.exit(0)` while writing its module is a
+/// failed recipe: the audit still writes its report and exits non-zero.
+#[test]
+fn parity_audit_fails_when_an_easyblock_exits() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let fixture = repo_root().join("fixtures/parity_audit_exit");
+    let report = temp.path().join("report.json");
+    let python = locked_easybuild_venv(temp.path());
+
+    let output = Command::new(&python)
+        .arg(repo_root().join("scripts/parity_audit.py"))
+        .arg("--easyconfigs")
+        .arg(fixture.join("easyconfigs"))
+        .arg("--sample-size")
+        .arg("0")
+        .arg("--include-easyblocks")
+        .arg(fixture.join("easyblocks/hookexit.py"))
+        .arg("--eb-stack")
+        .arg(env!("CARGO_BIN_EXE_eb-stack"))
+        .arg("--out")
+        .arg(&report)
+        .output()
+        .expect("run parity_audit.py with easybuild-framework");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !output.status.success(),
+        "stdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    let doc: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(&report)
+            .unwrap_or_else(|err| panic!("report not written ({err}):\n{stdout}\n{stderr}")),
+    )
+    .expect("parse report");
+    assert_eq!(mismatch_fields(&doc), vec!["easybuild_error"], "{doc}");
+    assert_eq!(
+        doc["mismatches"][0]["easybuild"], "easyblock hooks: SystemExit(0)",
+        "{doc}"
+    );
+}
+
 #[test]
 fn parity_audit_targets_easyblocks_by_their_decoded_class_names() {
     let temp = tempfile::tempdir().expect("tempdir");

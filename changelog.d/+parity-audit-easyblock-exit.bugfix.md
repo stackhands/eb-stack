@@ -1,0 +1,1 @@
+When an easyblock or easyconfig raises `SystemExit`, `scripts/parity_audit.py` records an EasyBuild error for that recipe. The audit then writes its report and exits non-zero, instead of stopping early with the easyblock's exit status.
