@@ -641,9 +641,19 @@ def compare_parity(truth_rows: list[dict], stack_rows: list[dict]) -> dict:
                 }
             )
 
+        # External modules have no toolchain. Drop them on both sides so an
+        # eb-stack external dependency is not reported as extra.
+        external_keys = {
+            (kind, str(dep.get("name") or ""))
+            for kind, field in (("runtime", "dependencies"), ("build", "builddependencies"))
+            for dep in truth.get(field, [])
+            if dep.get("external_module")
+        }
         st_deps_by_key: dict[tuple[str, str], list[str | None]] = {}
         for dep in stack.get("deps", []):
-            key = (dep["kind"], dep["name"])
+            key = (dep["kind"], str(dep.get("name") or ""))
+            if dep.get("external_module") or key in external_keys:
+                continue
             st_deps_by_key.setdefault(key, []).append(dep.get("resolved_module"))
 
         truth_deps_by_key: dict[tuple[str, str], list[dict]] = {}

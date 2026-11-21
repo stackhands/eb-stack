@@ -596,3 +596,107 @@ fn parity_audit_discovers_all_hook_categories_and_prints_seed() {
     assert_eq!(doc["targeted_count"], 10);
     assert_eq!(doc["checked"], 10);
 }
+
+#[test]
+fn parity_audit_ignores_external_modules_on_both_sides() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let ec_root = temp.path().join("easyconfigs");
+    generate_fixture_tree(&ec_root);
+
+    let truth_path = temp.path().join("truth.json");
+    let stack_path = temp.path().join("stack.json");
+    let truth = serde_json::json!({
+        "results": [{
+            "rel": "t/ToolA/ToolA-1.0-foss-2024a-extra.eb",
+            "ok": true,
+            "module_name": "ToolA/pre-1.0-foss-2024a-extra",
+            "versionsuffix": "-extra",
+            "exts_list": [
+                {"name": "extone", "version": "0.1.0"},
+                {"name": "exttwo", "version": "0.2.0"}
+            ],
+            "dependencies": [
+                {
+                    "name": "cray-mpich",
+                    "version": "8.1.25",
+                    "external_module": true,
+                    "resolved_module": "cray-mpich/8.1.25",
+                    "toolchain_name": ""
+                },
+                {
+                    "name": "zlib",
+                    "version": "1.3.1",
+                    "toolchain_name": "GCCcore",
+                    "toolchain_version": "13.3.0",
+                    "external_module": false,
+                    "resolved_module": "zlib/1.3.1-GCCcore-13.3.0"
+                }
+            ],
+            "builddependencies": []
+        }]
+    });
+    let stack = serde_json::json!({
+        "recipes": [{
+            "rel": "t/ToolA/ToolA-1.0-foss-2024a-extra.eb",
+            "ok": true,
+            "module_name": "ToolA/pre-1.0-foss-2024a-extra",
+            "versionsuffix": "-extra",
+            "exts_count": 2,
+            "dropped_exts": false,
+            "deps": [
+                {
+                    "kind": "runtime",
+                    "name": "cray-mpich",
+                    "version_req": "==8.1.25",
+                    "external_module": true,
+                    "resolved_module": "cray-mpich/8.1.25"
+                },
+                {
+                    "kind": "runtime",
+                    "name": "zlib",
+                    "version_req": "==1.3.1",
+                    "toolchain_name": "GCCcore",
+                    "toolchain_version": "13.3.0",
+                    "resolved_module": "zlib/1.3.1-GCCcore-13.3.0"
+                },
+                {
+                    "kind": "build",
+                    "name": "Ninja",
+                    "version_req": "==1.11.1",
+                    "resolved_module": "Ninja/1.11.1"
+                }
+            ]
+        }]
+    });
+    write_file(&truth_path, &serde_json::to_string_pretty(&truth).unwrap());
+    write_file(&stack_path, &serde_json::to_string_pretty(&stack).unwrap());
+
+    let report_path = temp.path().join("report.json");
+    let output = Command::new("python3")
+        .arg(repo_root().join("scripts/parity_audit.py"))
+        .arg("--easyconfigs")
+        .arg(&ec_root)
+        .arg("--truth-json")
+        .arg(&truth_path)
+        .arg("--eb-stack-json")
+        .arg(&stack_path)
+        .arg("--out")
+        .arg(&report_path)
+        .output()
+        .expect("run parity_audit.py external-module check");
+
+    let report: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&report_path).unwrap()).unwrap();
+    let fields = mismatch_fields(&report);
+    assert!(
+        !fields
+            .iter()
+            .any(|field| field == "extra_runtime_dep:cray-mpich"),
+        "external module must not be an extra dependency: {fields:?}"
+    );
+    assert!(
+        fields.iter().any(|field| field == "extra_build_dep:Ninja"),
+        "a non-external extra dependency must still be reported: {fields:?}"
+    );
+    assert!(!output.status.success());
+}
