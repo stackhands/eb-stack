@@ -80,7 +80,7 @@ layer. The public files contain reusable package intent and target topology.
 
 ## Releasing
 
-Version source of truth: `version` in root `Cargo.toml` (currently **0.9.0**).
+Version source of truth: `version` in root `Cargo.toml` (currently **0.9.1**).
 
 `cog bump` cuts a release. `cog.toml` runs `tools/release-prepare` before the
 bump commit, which builds `CHANGELOG.md` from `changelog.d/` with towncrier,
@@ -102,8 +102,8 @@ published citation.
 Then sign the tag cog made and push it:
 
 ```bash
-git tag -s -f v0.9.0 -m "eb-stack 0.9.0" 'v0.9.0^{}'
-git push origin v0.9.0
+git tag -s -f v0.9.1 -m "eb-stack 0.9.1" 'v0.9.1^{}'
+git push origin v0.9.1
 # .github/workflows/release.yml (cargo-dist) builds the installers
 # and publishes the GitHub Release.
 # .github/workflows/publish.yml publishes eb_stack to crates.io with Trusted
@@ -119,5 +119,5 @@ Verify the binary surface:
 ```bash
 cargo build --release
 ./target/release/eb-stack --version
-# prints eb-stack 0.9.0
+# prints eb-stack 0.9.1
 ```

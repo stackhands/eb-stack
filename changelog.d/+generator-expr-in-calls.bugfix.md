@@ -1,1 +1,0 @@
-Evaluate single-clause generator expressions inside method call arguments and parentheses (`sep.join(expr for var in seq)`) in `eb_parse`, recovering dropped `exts_list` blocks in `AlphaPulldown`, `jax`, and `scib-metrics`.

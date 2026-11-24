@@ -9,7 +9,7 @@ from docutils import nodes
 project = "eb-stack"
 copyright = "Copyright (c) eb-stack developers"
 author = "eb-stack developers"
-release = "0.9.0"
+release = "0.9.1"
 
 # -- General configuration ---------------------------------------------------
 extensions = [
