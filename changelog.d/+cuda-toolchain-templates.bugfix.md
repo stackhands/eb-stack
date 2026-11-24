@@ -1,1 +1,0 @@
-Expand `%(cudaver)s` and other dependency version templates inside `toolchain.version`, derive `cudaver` from `CUDA-<ver>` toolchain labels when no `CUDA` dependency is listed, and admit suffixed toolchain definitions in `dependency_candidate_scope`.

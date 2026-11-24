@@ -4,6 +4,41 @@ All notable changes to this project are documented here.
 
 <!-- towncrier release notes start -->
 
+## 0.9.1 - 2026-11-24
+
+### Fixed
+
+- CycloneDX SBOM emission includes a non-empty `versionsuffix` qualifier in each component `bom-ref` and `purl`, keeping co-installed builds of the same package release distinct so `dependencies` and formulation `taskDependencies` satisfy CycloneDX 1.5 uniqueness.
+- Derive `intel` (`iimkl`) and `lfoss` (`lfbf`) intermediate composite toolchains in topological subtoolchain-first order, and exclude `gompi` from `gfbf` hierarchies.
+- Easyconfig comment stripping and triple-quoted string scanning skip backslash escapes inside string literals so escaped quotes before `#` or closing delimiters do not truncate strings or drop later fields such as `toolchain`. Trailing comments after a closing triple quote on a continuation line are also stripped.
+- Enforce non-system per-dependency toolchain overrides in
+  `build_order::satisfies` even when a `SYSTEM` variant shares the exact
+  module version string.
+- Evaluate single-clause generator expressions inside method call arguments and parentheses (`sep.join(expr for var in seq)`) in `eb_parse`, recovering dropped `exts_list` blocks in `AlphaPulldown`, `jax`, and `scib-metrics`.
+- Expand `%(cudaver)s` and other dependency version templates inside `toolchain.version`, derive `cudaver` from `CUDA-<ver>` toolchain labels when no `CUDA` dependency is listed, and admit suffixed toolchain definitions in `dependency_candidate_scope`.
+- Fall back to the `NVHPC` easyconfig in `nvidia_compilers_gcccore` when
+  no `nvidia-compilers` recipe exists, restoring the `GCCcore` hierarchy
+  level for pre-2025 `NVHPC` and `nvompi` toolchains.
+- Include `versionsuffix` when reading the `nvidia-compilers` or `NVHPC` dependency pin inside `derive_nvidia_family_hierarchy`, so `NVHPC-25.3-CUDA-12.8.0` hierarchies emit `nvidia-compilers-25.3-CUDA-12.8.0` and resolve `libxc` and `GSL` dependencies built against it.
+- Map EasyBuild's alternative easyconfig parameter spellings such as
+  `version_suffix`, `version_prefix`, `deps`, and `build_deps` to their
+  canonical parameter names after parsing.
+- Match combined `version + versionsuffix` dependency pins in `candidate_matches_dep_for_recipe` when `dep.versionsuffix` is unset (such as `MCR/R2019b.8`), and accept trailing commas in `list.append(...)` statements.
+- Parse Python raw string literals (`r"..."`, `r'...'`, `r"""..."""`) and raw f-strings (`rf"..."`, `fr"..."`) in `eb_parse` instead of rejecting the prefix as an unknown identifier and dropping `exts_list` or command parameters.
+- Parse unparenthesized comma-separated right-hand side tuples in `eb_parse` unpacking assignments (such as `_parallel_tests, _test_type = 1, 'fast'`) so `exts_list` in `CuPy` recipes is preserved.
+- Require an empty `versionsuffix` in `build_order::satisfies` when a
+  dependency omits the versionsuffix tuple element, matching EasyBuild's
+  empty-suffix default while still allowing exact combined stem+suffix pins.
+- `provides` and `classify_stack_diff` in `src/report.rs` match toolchains with `crate::hierarchy::toolchains_match` rather than raw toolchain labels, so legacy `system` and `dummy` lock entries align cleanly with `system/system`.
+- `stack admit` validates its timestamp and its quota and live-jobs sources before it takes the lock or runs a command, and reports an invalid timestamp under the ts option instead of generated-at. An invalid lock kind exits with status 2.
+
+### Documentation
+
+- The README and the command-line reference list every tool `eb-stack mcp` serves. The README left out `eb_stack_capacity`, `eb_stack_footprints`, `eb_stack_admit` and the ten `eb_ledger_*` tools, and the reference left out `eb_stack_buildenv` and four ledger tools. A test now compares both pages with the `tools/list` catalog.
+- The `stack gap` how-to quotes the count line the command prints, with `filtered`, `open-layer` and `open-easyconfigs`, and lists every file `--out-dir` receives instead of three. A test now compares each count line a how-to quotes with the line its command prints.
+- The scheduler capacity page runs as written. Its two commands continued each line with two backslashes, so a pasted block stopped after the first line, and the storage-policy fixture it uses named a stale snapshot digest, so `stack shard --storage-policy` refused it. Both now work from a checkout, and the page names release 0.7.4 as the first one that carries `stack capacity` and `stack shard --storage-policy` instead of saying the 0.7.3 binary lacks them.
+
+
 ## 0.9.0 - 2026-11-19
 
 ### Added
