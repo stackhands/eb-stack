@@ -1,1 +1,0 @@
-`provides` and `classify_stack_diff` in `src/report.rs` match toolchains with `crate::hierarchy::toolchains_match` rather than raw toolchain labels, so legacy `system` and `dummy` lock entries align cleanly with `system/system`.

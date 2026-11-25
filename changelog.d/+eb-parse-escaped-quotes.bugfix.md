@@ -1,1 +1,0 @@
-Easyconfig comment stripping and triple-quoted string scanning skip backslash escapes inside string literals so escaped quotes before `#` or closing delimiters do not truncate strings or drop later fields such as `toolchain`. Trailing comments after a closing triple quote on a continuation line are also stripped.

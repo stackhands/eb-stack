@@ -1,1 +1,0 @@
-The `stack gap` how-to quotes the count line the command prints, with `filtered`, `open-layer` and `open-easyconfigs`, and lists every file `--out-dir` receives instead of three. A test now compares each count line a how-to quotes with the line its command prints.

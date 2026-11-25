@@ -1,1 +1,0 @@
-`stack admit` validates its timestamp and its quota and live-jobs sources before it takes the lock or runs a command, and reports an invalid timestamp under the ts option instead of generated-at. An invalid lock kind exits with status 2.
