@@ -417,7 +417,7 @@ Use a runtime-specific ~EASYBUILD_INSTALLPATH~, ~work_root~, and ~tmp_root~ so
 host-linked modules cannot leak into a container build. A shared
 ~EASYBUILD_SOURCEPATH~ is safe for source archives.
 
-* Run the Hermes/OMP repair loop
+* Run the lead/worker repair loop
 
 #+begin_src bash
 eb-stack campaign run \
@@ -427,7 +427,7 @@ eb-stack campaign run \
   --state /tmp/eb-stack/bundles/eon.campaign.json
 #+end_src
 
-Hermes owns the campaign loop. OMP workers claim typed findings, repair the
+The lead owns the campaign loop. Workers claim typed findings, repair the
 manifest/profile/recipe/target layer appropriate to the class, record evidence,
 and rerun the campaign. Build compatibility claims are not proof: configure,
 compile, link, test, install, and sanity failures stay empirical findings until

@@ -42,7 +42,7 @@ file had to be corrected by hand.
    at least one easyconfigs path and refuses a recipe that is not valid Python.
 5. Run `eb-stack target doctor` before a build campaign.
 6. Run or resume `eb-stack campaign run` on the configured EasyBuild target until the requested claim rung is established.
-7. Use `campaign finding claim|resolve` for OMP coordination. Never edit campaign JSON directly or steal an owned finding.
+7. Use `campaign finding claim|resolve` for worker coordination. Never edit campaign JSON directly or steal an owned finding.
 8. For an **upstream easyconfigs PR**, after recipes are ready, use the EasyBuild
    CLI on the build host: `eb --check-contrib`, then
    `eb --from-pr <N> --robot --upload-test-report` (see `skills/upstream-pr/SKILL.md`).
@@ -62,7 +62,7 @@ lint findings remain, and do not comment on the PR.
 ## Non-negotiables
 
 - Dependency versions, hierarchy choices, site pins, and fallbacks belong inside Resolvo. A package-specific `--dep` override becomes a locked solver pin.
-- Boolean satisfiability (SAT) compatibility is not build evidence. Hermes owns classified target/recipe/policy repair and repeats the campaign through verification.
+- Boolean satisfiability (SAT) compatibility is not build evidence. The lead owns classified target/recipe/policy repair and repeats the campaign through verification.
 - Fix code and recipes under test. Never remove assertions, dependencies, checksums, sanity checks, or tests to clear a failure.
 - Run EasyBuild installs on the configured target, scheduler, and runtime. Keep `EASYBUILD_TMPDIR` on durable storage.
 - Report `resolves`, `builds`, and `binary-verified` separately. A plan establishes only `resolves`; a build without declared verification does not establish `binary-verified`. `eessi-verified` is a further rung owned by `skills/eessi-extend/SKILL.md`; a build on a normal target never establishes it.

@@ -674,17 +674,17 @@ fn finding_queue_enforces_ownership_and_records_resolution() {
     .expect("failed campaign");
     let finding = failed.findings[0].id.clone();
 
-    let claimed = claim_finding(&state_path, &finding, "omp-worker-1").expect("claim finding");
+    let claimed = claim_finding(&state_path, &finding, "worker-1").expect("claim finding");
     assert_eq!(claimed.findings[0].status, FindingStatus::InProgress);
-    assert_eq!(claimed.findings[0].owner.as_deref(), Some("omp-worker-1"));
-    let conflict = claim_finding(&state_path, &finding, "omp-worker-2")
+    assert_eq!(claimed.findings[0].owner.as_deref(), Some("worker-1"));
+    let conflict = claim_finding(&state_path, &finding, "worker-2")
         .expect_err("second worker cannot steal finding");
-    assert!(conflict.to_string().contains("omp-worker-1"), "{conflict}");
+    assert!(conflict.to_string().contains("worker-1"), "{conflict}");
 
     let resolved = resolve_finding(
         &state_path,
         &finding,
-        "omp-worker-1",
+        "worker-1",
         FindingResolution {
             action: "corrected the package config".into(),
             evidence: "recipe check exits successfully".into(),
@@ -1187,7 +1187,7 @@ fn campaign_cli_claims_and_resolves_findings_for_omp_workers() {
             "--id",
             finding,
             "--owner",
-            "omp-worker-1",
+            "worker-1",
         ])
         .output()
         .expect("claim command");
@@ -1207,7 +1207,7 @@ fn campaign_cli_claims_and_resolves_findings_for_omp_workers() {
             "--id",
             finding,
             "--owner",
-            "omp-worker-1",
+            "worker-1",
             "--action",
             "corrected package config",
             "--evidence",
@@ -1226,7 +1226,7 @@ fn campaign_cli_claims_and_resolves_findings_for_omp_workers() {
         serde_json::from_str(&std::fs::read_to_string(state_path).expect("state"))
             .expect("state JSON");
     assert_eq!(state["findings"][0]["status"], "resolved");
-    assert_eq!(state["findings"][0]["owner"], "omp-worker-1");
+    assert_eq!(state["findings"][0]["owner"], "worker-1");
 }
 
 #[test]

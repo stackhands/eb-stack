@@ -98,11 +98,11 @@ Flags and exit status stay in the [[file:cli.org][command-line reference]].
   5.4.0, or 5.4.1, each tied to the fixture that page records. Those
   version strings are not substitutes for one another.
 
-- Hermes :: The campaign role that classifies findings, applies repairs,
+- Lead :: The campaign role that classifies findings, applies repairs,
   and retries through the requested claim. Not a program that must be
   installed beside ~eb-stack~.
 
-- OMP :: On a campaign, an optional worker that claims one finding and
+- Worker :: On a campaign, an optional worker that claims one finding and
   records the repair. This is not the OpenMP runtime. OpenMP, written in
   full, is a toolchain feature on a recipe.
 

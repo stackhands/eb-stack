@@ -226,8 +226,8 @@ EB_EASYCONFIGS="$EB_EASYCONFIGS" \
 
 Unresolved dependencies and unsatisfiable locked pins fail the planning
 command. Build-compatible claims that fail configure, compile, link, test,
-install, or sanity become typed campaign findings. Hermes owns the full repair
-loop; OMP workers claim findings, repair the evidence-supported layer, record
+install, or sanity become typed campaign findings. The lead owns the full repair
+loop; workers claim findings, repair the evidence-supported layer, record
 the resolution, and rerun the campaign.
 
 * Next steps
