@@ -1,6 +1,6 @@
 ---
 name: eb-stack-new-package
-description: Convert a conda-forge or Spack recipe into a canonical package manifest, CycloneDX SBOM, Resolvo profile locks, separate EasyBuild easyconfigs for product variants, and a remotely built and verified campaign. Use for new EasyBuild packages, foreign recipe imports, eOn or QMCPACK packaging, and Hermes/OMP build-repair loops.
+description: Convert a conda-forge or Spack recipe into a canonical package manifest, CycloneDX SBOM, Resolvo profile locks, separate EasyBuild easyconfigs for product variants, and a remotely built and verified campaign. Use for new EasyBuild packages, foreign recipe imports, eOn or QMCPACK packaging, and lead/worker build-repair loops.
 ---
 
 # Build a new EasyBuild package
@@ -159,7 +159,7 @@ part of the identity unconstrained. Use `preferred` when Resolvo may fall back
 to another compatible candidate; the profile lock records the requested and
 selected identity and whether fallback occurred. Use `locked` when any other
 identity is invalid. A claimed-compatible version that fails to build remains
-a build finding; Hermes decides whether the recipe, target, or stack policy
+a build finding; the lead decides whether the recipe, target, or stack policy
 needs repair.
 
 ## Plan the package
@@ -313,11 +313,11 @@ CARGO_BUILD_RUSTC_WRAPPER`. Empty values remain environment entries and Rust
 bootstrap can treat the empty string as a wrapper executable. The isolated
 work root prevents `unset` from revealing an inherited Cargo wrapper.
 
-## Hermes build-evaluation loop
+## Lead build-evaluation loop
 
-Hermes is the single campaign-owner role, not a required orchestration
+The lead is the single campaign-owner role, not a required orchestration
 product. It owns classification, repair decisions, retries, and the final
-claim ladder. OMP workers are optional concurrent participants that use only
+claim ladder. Workers are optional concurrent participants that use only
 the campaign finding queue for shared coordination.
 
 Use one durable state path for the package:
@@ -337,7 +337,7 @@ shell. If its controller exits, verify that the routed container, scheduler
 job, or host command is absent before rerunning the same state. The state lock
 releases automatically, but a remote workload can survive its controller.
 
-Hermes owns this loop until the requested claim is established:
+The lead owns this loop until the requested claim is established:
 
 1. Read `campaign status`; inspect the newest open finding and its full command evidence.
 2. Classify before editing: `transport`, `executor`, `runtime`, `interrupted`, `source`, `checksum`, `patch`, `dependency-missing`, `configure`, `compile`, `link`, `test`, `install`, `license`, `sanity`, `resource`, `timeout`, or `unknown`.
@@ -353,7 +353,7 @@ record.
 
 Never edit a stock recipe to hide a target defect. Never weaken a test or sanity check. Record changed files and concrete verification output in the finding resolution.
 
-## OMP finding coordination
+## Worker finding coordination
 
 Campaign state is the sole shared work queue. One worker must claim a finding before changing its inputs:
 
@@ -361,7 +361,7 @@ Campaign state is the sole shared work queue. One worker must claim a finding be
 eb-stack campaign finding claim \
   --state work/qmcpack.campaign.json \
   --id attempt:1:finding:1 \
-  --owner omp-worker-1
+  --owner worker-1
 ```
 
 Resolve only after the repair is checked:
@@ -370,13 +370,13 @@ Resolve only after the repair is checked:
 eb-stack campaign finding resolve \
   --state work/qmcpack.campaign.json \
   --id attempt:1:finding:1 \
-  --owner omp-worker-1 \
+  --owner worker-1 \
   --action "corrected the complex package configuration" \
   --evidence "recipe check exits successfully" \
   --change examples/packages/qmcpack.toml
 ```
 
-The state lock prevents concurrent writers. Workers must not steal an `in-progress` finding or edit the campaign JSON directly. Hermes resumes the campaign after owned repairs are resolved.
+The state lock prevents concurrent writers. Workers must not steal an `in-progress` finding or edit the campaign JSON directly. The lead resumes the campaign after owned repairs are resolved.
 
 ## Claims
 

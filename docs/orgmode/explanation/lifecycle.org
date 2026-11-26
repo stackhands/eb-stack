@@ -87,6 +87,6 @@ A campaign with no verification commands may establish *builds* but leaves
   configuration.
 - Empirical failures and repair evidence belong in campaign state.
 
-This structure lets Hermes own the build-evaluation loop without turning every
-failure into unstructured prompt text. OMP workers can coordinate by finding
+This structure lets the lead own the build-evaluation loop without turning every
+failure into unstructured prompt text. Workers can coordinate by finding
 class and ownership while preserving the exact command and evidence.

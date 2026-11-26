@@ -81,14 +81,14 @@ directory.
 
 * Claim the finding
 
-Use a stable worker name. Claims prevent Hermes and OMP workers from applying
+Use a stable worker name. Claims prevent the lead and workers from applying
 different repairs to the same evidence:
 
 #+begin_src bash
 eb-stack campaign finding claim \
   --state /tmp/eb-stack/bundles/eon-repair.campaign.json \
   --id attempt:1:finding:1 \
-  --owner hermes
+  --owner lead
 #+end_src
 
 The same owner may claim again safely. Another owner receives an ownership
@@ -155,14 +155,14 @@ every changed artifact:
 eb-stack campaign finding resolve \
   --state /tmp/eb-stack/bundles/eon-repair.campaign.json \
   --id attempt:1:finding:1 \
-  --owner hermes \
+  --owner lead \
   --action "point the EasyBuild command at the program the target image provides" \
   --evidence "target doctor easybuild check names the missing program" \
   --change examples/targets/local-podman.toml
 #+end_src
 
 The resolution is an audit record. The finding status becomes ~resolved~
-and the owner stays ~hermes~.
+and the owner stays ~lead~.
 
 * Retry the same state
 

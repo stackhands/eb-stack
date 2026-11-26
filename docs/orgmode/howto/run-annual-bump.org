@@ -103,7 +103,7 @@ eb-stack campaign run \
   --state /tmp/eb-stack/bundles/gromacs-2024a.campaign.json
 #+end_src
 
-Hermes owns the retry loop. OMP workers claim findings and repair according to
+The lead owns the retry loop. Workers claim findings and repair according to
 class:
 
 | Class | Repair surface |

@@ -687,7 +687,7 @@ fn tool_catalog() -> Vec<Value> {
         ),
         tool(
             "eb_campaign_finding_claim",
-            "Claim one open campaign finding for an OMP worker.",
+            "Claim one open campaign finding for a worker.",
             &[("state", "string"), ("id", "string"), ("owner", "string")],
         ),
         tool_with_optional(

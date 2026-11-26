@@ -1,6 +1,6 @@
 ---
 name: eb-stack-annual-bump
-description: Retarget an existing EasyBuild easyconfig to a new toolchain or application version using a canonical EasyBuild-origin manifest, CycloneDX software bill of materials (SBOM), Resolvo dependency lock, stack-policy fallback, deterministic recipe emission, and the persisted Hermes/OMP remote build campaign. Use for annual stack rebuilds and package version bumps.
+description: Retarget an existing EasyBuild easyconfig to a new toolchain or application version using a canonical EasyBuild-origin manifest, CycloneDX software bill of materials (SBOM), Resolvo dependency lock, stack-policy fallback, deterministic recipe emission, and the persisted lead/worker remote build campaign. Use for annual stack rebuilds and package version bumps.
 ---
 
 # Bump an EasyBuild package
@@ -141,7 +141,7 @@ Pins may also set `toolchain = { name = "...", version = "..." }` and
 remain unconstrained. `preferred` asks Resolvo to select the complete identity
 and records whether it fell back. `locked` makes the pin mandatory.
 Compatibility metadata is not build evidence: if a preferred or locked
-selection fails on the build target, Hermes owns the classified repair loop
+selection fails on the build target, the lead owns the classified repair loop
 and may change the policy only with evidence.
 
 Use repeatable `--dep NAME=VERSION` only for a package-specific hard override. It is folded into the solve as a locked pin and appears in the lock evidence.
@@ -209,7 +209,7 @@ that its routed workload is absent before rerunning the same state; the
 OS-backed state guard releases automatically, while a remote workload can
 survive its controller.
 
-Hermes classifies each failure and drives recipe, policy, or target repair. OMP workers coordinate through `campaign finding claim` and `campaign finding resolve`; they never edit campaign JSON or work the same finding concurrently. Re-run the campaign until the requested claim rung is green.
+The lead classifies each failure and drives recipe, policy, or target repair. Workers coordinate through `campaign finding claim` and `campaign finding resolve`; they never edit campaign JSON or work the same finding concurrently. Re-run the campaign until the requested claim rung is green.
 
 Build failure classes are evidence, not solver contradictions. A SAT-compatible dependency set can still fail to configure, compile, link, test, install, or pass sanity checks on a concrete target.
 
