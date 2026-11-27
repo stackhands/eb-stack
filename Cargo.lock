@@ -461,7 +461,6 @@ dependencies = [
  "rfc9162-tiles",
  "rustpython-ast",
  "rustpython-parser",
- "sbom-det",
  "serde",
  "serde_json",
  "serde_yaml",
@@ -471,6 +470,7 @@ dependencies = [
  "thiserror",
  "toml",
  "ureq",
+ "uuid",
  "version-ranges",
 ]
 
@@ -1673,15 +1673,6 @@ name = "ryu"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9774ba4a74de5f7b1c1451ed6cd5285a32eddb5cccb8cc655a4e50009e06477f"
-
-[[package]]
-name = "sbom-det"
-version = "0.1.0"
-dependencies = [
- "cyclonedx-bom",
- "serde_json",
- "uuid",
-]
 
 [[package]]
 name = "semver"

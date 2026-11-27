@@ -1,12 +1,16 @@
 //! Planned CycloneDX 1.5 SBOM from a stack lock (pre-install inventory).
 //!
 //! The EasyBuild mapping lives here. Components, dependencies, hashes,
-//! purls, the timestamp and the serial number come from the `sbom-det`
-//! crate. The timestamp is the lock's when it is RFC 3339, and the serial
+//! purls, the timestamp and the serial number come from the `sbom_det`
+//! module. The timestamp is the lock's when it is RFC 3339, and the serial
 //! is derived from the document. Declared dependency edges stay in lock
 //! order. This is a pre-install inventory, not a post-build scan.
 
 use crate::domain::{StackLock, Universe};
+use crate::sbom_det::{
+    ComponentKind, ComponentSpec, DependencyEdge, Document, ExternalKind, ExternalRef,
+    LifecyclePhase, ToolSpec,
+};
 use cyclonedx_bom::models::bom::BomReference;
 use cyclonedx_bom::models::composition::{AggregateType, Composition, Compositions};
 use cyclonedx_bom::models::dependency::Dependency;
@@ -20,10 +24,6 @@ use cyclonedx_bom::models::formulation::workflow::{Task, TaskType, Workflow};
 use cyclonedx_bom::models::formulation::Formula;
 use cyclonedx_bom::models::property::{Properties, Property};
 use cyclonedx_bom::prelude::*;
-use sbom_det::{
-    ComponentKind, ComponentSpec, DependencyEdge, Document, ExternalKind, ExternalRef,
-    LifecyclePhase, ToolSpec,
-};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
@@ -37,7 +37,7 @@ fn bom_ref(
     match versionsuffix.filter(|s| !s.is_empty()) {
         Some(suffix) => format!(
             "pkg:generic/{name}@{version}?toolchain={toolchain_label}&versionsuffix={}",
-            sbom_det::encode_purl_qualifier(suffix)
+            crate::sbom_det::encode_purl_qualifier(suffix)
         ),
         None => format!("pkg:generic/{name}@{version}?toolchain={toolchain_label}"),
     }
@@ -296,7 +296,7 @@ pub fn lock_to_bom_with_facts(lock: &StackLock, facts: SbomFacts<'_>) -> Bom {
             // A checksum the spec cannot express as a hash is still evidence,
             // and dropping it silently would hide that the recipe states one.
             for stated in &facts.checksums {
-                if sbom_det::sha256_hash(stated).is_some() {
+                if crate::sbom_det::sha256_hash(stated).is_some() {
                     sha256.push(stated.clone());
                 } else if !stated.trim().is_empty() {
                     properties.push(("easybuild:checksum_unmapped".to_string(), stated.clone()));
@@ -413,7 +413,7 @@ pub fn lock_to_bom_with_facts(lock: &StackLock, facts: SbomFacts<'_>) -> Bom {
     bom.compositions = Some(Compositions(vec![compositions_statement(
         &stack_ref, unresolved,
     )]));
-    sbom_det::seal(&mut bom);
+    crate::sbom_det::seal(&mut bom);
     bom
 }
 
@@ -1072,7 +1072,7 @@ pub fn lock_to_cyclonedx_with_facts(lock: &StackLock, facts: SbomFacts<'_>) -> V
 }
 
 fn bom_to_json_value(bom: Bom) -> Value {
-    sbom_det::to_json_value(bom)
+    crate::sbom_det::to_json_value(bom)
 }
 
 /// Build dep map name -> **runtime** dependency names from universe candidates

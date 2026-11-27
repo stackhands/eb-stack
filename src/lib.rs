@@ -89,6 +89,7 @@ pub mod repro_report;
 pub mod resolvo_provider;
 pub mod robot_lookup;
 pub mod sbom;
+pub mod sbom_det;
 pub mod select;
 pub mod shadow;
 pub mod shard;
