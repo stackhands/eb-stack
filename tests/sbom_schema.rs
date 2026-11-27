@@ -234,6 +234,46 @@ fn a_repeated_runtime_dep_satisfies_unique_items() {
         .expect("App edge");
     let depends = app["dependsOn"].as_array().expect("dependsOn");
     assert_eq!(depends.len(), 1, "{depends:?}");
+
+    // One repeated package identity: the same component, dependency edge,
+    // formulation task, and task edge must not be emitted twice.
+    let repeated_rows = [("a repeated package identity", 1usize)];
+    for (label, extra) in repeated_rows {
+        let mut repeated = lock();
+        let again = repeated.packages[extra].clone();
+        repeated.packages.push(again);
+        let document = lock_to_cyclonedx_with_facts(&repeated, SbomFacts::default());
+        let errors: Vec<String> = validator
+            .iter_errors(&document)
+            .map(|error| format!("{} at {}", error, error.instance_path))
+            .collect();
+        assert!(
+            errors.is_empty(),
+            "{label} must be uniqueItems-clean:\n{}",
+            errors.join("\n")
+        );
+        assert_eq!(
+            document["components"].as_array().unwrap().len(),
+            repeated.packages.len() - 1,
+            "{label}"
+        );
+        assert_eq!(
+            document["dependencies"].as_array().unwrap().len(),
+            repeated.packages.len() - 1,
+            "{label}"
+        );
+        let workflow = &document["formulation"][0]["workflows"][0];
+        assert_eq!(
+            workflow["tasks"].as_array().unwrap().len(),
+            repeated.packages.len() - 1,
+            "{label}"
+        );
+        assert_eq!(
+            workflow["taskDependencies"].as_array().unwrap().len(),
+            repeated.packages.len() - 1,
+            "{label}"
+        );
+    }
 }
 
 #[test]
