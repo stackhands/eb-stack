@@ -1,18 +1,19 @@
 //! Planned CycloneDX 1.5 SBOM from a stack lock (pre-install inventory).
 //!
-//! Built with the official [`cyclonedx_bom`] crate (same models as
-//! `cargo-cyclonedx` / CycloneDX Rust Cargo). Documents are serialized as
-//! JSON 1.5 with serial numbers, tool metadata, lifecycle phase, and
-//! declared dependency edges — not a post-build compliance scan.
+//! The EasyBuild mapping lives here. Components, dependencies, hashes,
+//! purls, the timestamp and the serial number come from `sbom_det`, the
+//! same file the `sbom-det` crate compiles. The timestamp is the lock's
+//! when it parses, and the serial is derived from the document. Declared
+//! dependency edges stay in lock order. This is a pre-install inventory,
+//! not a post-build scan.
+
+#[path = "sbom_det.rs"]
+mod sbom_det;
 
 use crate::domain::{StackLock, Universe};
 use cyclonedx_bom::models::bom::BomReference;
-use cyclonedx_bom::models::component::{Classification, Component, Components};
 use cyclonedx_bom::models::composition::{AggregateType, Composition, Compositions};
-use cyclonedx_bom::models::dependency::{Dependencies, Dependency};
-use cyclonedx_bom::models::external_reference::{
-    ExternalReference, ExternalReferenceType, ExternalReferences, Uri as ExternalUri,
-};
+use cyclonedx_bom::models::dependency::Dependency;
 use cyclonedx_bom::models::formulation::workflow::input::{Input, RequiredInputField};
 use cyclonedx_bom::models::formulation::workflow::output::{
     Output, RequiredOutputField, Type as OutputType,
@@ -21,30 +22,15 @@ use cyclonedx_bom::models::formulation::workflow::resource_reference::ResourceRe
 use cyclonedx_bom::models::formulation::workflow::step::{Command, Step};
 use cyclonedx_bom::models::formulation::workflow::{Task, TaskType, Workflow};
 use cyclonedx_bom::models::formulation::Formula;
-use cyclonedx_bom::models::hash::{Hash, HashAlgorithm, HashValue, Hashes};
-use cyclonedx_bom::models::lifecycle::{Lifecycle, Lifecycles, Phase};
-use cyclonedx_bom::models::metadata::Metadata;
 use cyclonedx_bom::models::property::{Properties, Property};
-use cyclonedx_bom::models::tool::{Tool, Tools};
 use cyclonedx_bom::prelude::*;
+use sbom_det::{
+    ComponentKind, ComponentSpec, DependencyEdge, Document, ExternalKind, ExternalRef,
+    LifecyclePhase, ToolSpec,
+};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
-use std::convert::TryFrom;
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
-
-fn encode_purl_qualifier(value: &str) -> String {
-    let mut out = String::with_capacity(value.len());
-    for byte in value.bytes() {
-        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
-            out.push(byte as char);
-        } else {
-            use std::fmt::Write;
-            let _ = write!(out, "%{byte:02X}");
-        }
-    }
-    out
-}
 
 fn bom_ref(
     name: &str,
@@ -55,7 +41,7 @@ fn bom_ref(
     match versionsuffix.filter(|s| !s.is_empty()) {
         Some(suffix) => format!(
             "pkg:generic/{name}@{version}?toolchain={toolchain_label}&versionsuffix={}",
-            encode_purl_qualifier(suffix)
+            sbom_det::encode_purl_qualifier(suffix)
         ),
         None => format!("pkg:generic/{name}@{version}?toolchain={toolchain_label}"),
     }
@@ -167,23 +153,6 @@ pub struct SbomFacts<'a> {
     pub build_environment: Option<&'a BTreeMap<String, String>>,
 }
 
-/// A SHA-256 as the spec wants it, or nothing.
-///
-/// EasyBuild checksums are usually SHA-256 but the parameter also carries
-/// `('md5', ...)` tuples, dict-per-source forms and, historically, bare MD5.
-/// Guessing the algorithm from a string of the wrong length would put a false
-/// assertion in a document whose only purpose is to be trusted.
-fn sha256_hash(value: &str) -> Option<Hash> {
-    let candidate = value.trim();
-    if candidate.len() != 64 || !candidate.chars().all(|c| c.is_ascii_hexdigit()) {
-        return None;
-    }
-    Some(Hash {
-        alg: HashAlgorithm::SHA_256,
-        content: HashValue(candidate.to_ascii_lowercase()),
-    })
-}
-
 /// Build-environment metadata from the current host for SBOM/test qualification.
 pub fn host_build_environment() -> BTreeMap<String, String> {
     let optarch = std::env::var("EASYBUILD_OPTARCH")
@@ -287,7 +256,7 @@ pub fn lock_to_bom_with_facts(lock: &StackLock, facts: SbomFacts<'_>) -> Bom {
         );
         package_refs.insert(package_identity(p), r);
     }
-    let mut components: Vec<Component> = Vec::new();
+    let mut components = Vec::new();
 
     for p in &lock.packages {
         let package_toolchain = p.toolchain.label();
@@ -296,14 +265,20 @@ pub fn lock_to_bom_with_facts(lock: &StackLock, facts: SbomFacts<'_>) -> Bom {
             .expect("every locked package was just keyed")
             .clone();
 
-        let mut props = vec![
-            Property::new("easybuild:toolchain", &package_toolchain),
-            Property::new("easybuild:easyconfig_path", &p.easyconfig_path),
-            Property::new("eb_stack:lifecycle", "pre-install-plan"),
+        let mut properties = vec![
+            ("easybuild:toolchain".to_string(), package_toolchain),
+            (
+                "easybuild:easyconfig_path".to_string(),
+                p.easyconfig_path.clone(),
+            ),
+            (
+                "eb_stack:lifecycle".to_string(),
+                "pre-install-plan".to_string(),
+            ),
         ];
         if let Some(vs) = p.versionsuffix.as_deref() {
             if !vs.is_empty() {
-                props.push(Property::new("easybuild:versionsuffix", vs));
+                properties.push(("easybuild:versionsuffix".to_string(), vs.to_string()));
             }
         }
         if let Some(bmap) = build_dep_map {
@@ -314,66 +289,57 @@ pub fn lock_to_bom_with_facts(lock: &StackLock, facts: SbomFacts<'_>) -> Bom {
                         .filter_map(|token| component_ref(&package_refs, token))
                         .collect::<Vec<_>>()
                         .join(",");
-                    props.push(Property::new("eb_stack:buildDependsOn", &joined));
+                    properties.push(("eb_stack:buildDependsOn".to_string(), joined));
                 }
             }
         }
 
-        let purl_str = r.clone();
-        let mut component = Component::new(Classification::Library, &p.name, &p.version, Some(r));
-        component.purl = Purl::from_str(&purl_str).ok();
-
+        let mut sha256 = Vec::new();
+        let mut external_references = Vec::new();
         if let Some(facts) = artifacts.and_then(|m| mapped(m, p)) {
-            let hashes: Vec<Hash> = facts
-                .checksums
-                .iter()
-                .filter_map(|c| sha256_hash(c))
-                .collect();
-            if !hashes.is_empty() {
-                component.hashes = Some(Hashes(hashes));
-            }
             // A checksum the spec cannot express as a hash is still evidence,
             // and dropping it silently would hide that the recipe states one.
             for stated in &facts.checksums {
-                if sha256_hash(stated).is_none() && !stated.trim().is_empty() {
-                    props.push(Property::new("easybuild:checksum_unmapped", stated));
+                if sbom_det::sha256_hash(stated).is_some() {
+                    sha256.push(stated.clone());
+                } else if !stated.trim().is_empty() {
+                    properties.push(("easybuild:checksum_unmapped".to_string(), stated.clone()));
                 }
             }
-            let refs: Vec<ExternalReference> = facts
-                .source_urls
-                .iter()
-                .filter_map(|url| {
-                    Uri::try_from(url.clone())
-                        .ok()
-                        .map(|uri| ExternalReference {
-                            external_reference_type: ExternalReferenceType::Distribution,
-                            url: ExternalUri::Url(uri),
-                            comment: Some("source_urls entry of the easyconfig".to_string()),
-                            hashes: None,
-                        })
-                })
-                .collect();
-            if !refs.is_empty() {
-                component.external_references = Some(ExternalReferences(refs));
+            for url in &facts.source_urls {
+                external_references.push(ExternalRef {
+                    kind: ExternalKind::Distribution,
+                    url: url.clone(),
+                    comment: Some("source_urls entry of the easyconfig".to_string()),
+                });
             }
             // Patches are named, not carried: CycloneDX pedigree wants the diff
             // itself, and an easyconfig states only a filename in its own tree.
             for patch in &facts.patches {
-                props.push(Property::new("easybuild:patch", patch));
+                properties.push(("easybuild:patch".to_string(), patch.clone()));
             }
         }
 
-        component.properties = Some(Properties(props));
-        components.push(component);
+        components.push(ComponentSpec {
+            kind: ComponentKind::Library,
+            name: p.name.clone(),
+            version: p.version.clone(),
+            bom_ref: r.clone(),
+            purl: Some(r),
+            description: None,
+            sha256,
+            properties,
+            external_references,
+        });
     }
 
-    let mut deps: Vec<Dependency> = Vec::new();
+    let mut dependencies = Vec::new();
     for p in &lock.packages {
         let r = package_refs
             .get(&package_identity(p))
             .expect("every locked package was just keyed")
             .clone();
-        let mut depends_on: Vec<String> = Vec::new();
+        let mut depends_on = Vec::new();
         if let Some(map) = runtime_dep_map {
             for token in mapped(map, p).into_iter().flatten() {
                 if let Some(dep_ref) = component_ref(&package_refs, token) {
@@ -385,9 +351,9 @@ pub fn lock_to_bom_with_facts(lock: &StackLock, facts: SbomFacts<'_>) -> Bom {
                 }
             }
         }
-        deps.push(Dependency {
-            dependency_ref: r,
-            dependencies: depends_on,
+        dependencies.push(DependencyEdge {
+            bom_ref: r,
+            depends_on,
         });
     }
 
@@ -397,60 +363,61 @@ pub fn lock_to_bom_with_facts(lock: &StackLock, facts: SbomFacts<'_>) -> Bom {
         .clone()
         .unwrap_or_else(|| toolchain_label.clone());
     let stack_ref = format!("pkg:generic/{stack_name}@{stack_ver}");
-    let mut meta_component = Component::new(
-        Classification::Application,
-        &stack_name,
-        &stack_ver,
-        Some(stack_ref.clone()),
-    );
-    meta_component.description = Some(NormalizedString::new(
-        "Planned EasyBuild stack inventory from eb-stack lock (pre-install; not a post-build compliance scan)",
-    ));
-
-    let mut metadata = Metadata::new().unwrap_or_default();
-    // Prefer lock solver timestamp when parseable as ISO-8601.
-    if let Ok(dt) = DateTime::try_from(lock.solver.timestamp.clone()) {
-        metadata.timestamp = Some(dt);
-    }
-    metadata.tools = Some(Tools::List(vec![Tool::new(
-        "stackhands",
-        "eb-stack",
-        &lock.solver.engine_version,
-    )]));
-    metadata.component = Some(meta_component);
-    metadata.properties = Some(Properties(vec![
-        Property::new("eb_stack:document_kind", "planned-sbom-from-lock"),
-        Property::new("eb_stack:solver_engine", &lock.solver.engine),
-        Property::new("eb_stack:toolchain", &toolchain_label),
-    ]));
-    metadata.lifecycles = Some(Lifecycles(vec![Lifecycle::Phase(Phase::PreBuild)]));
-
-    Bom {
+    // `assemble` keeps lock order. Sorting the edges would rewrite the
+    // dependsOn list a recipe declared. The serial is applied after the
+    // formulation, which is EasyBuild-specific, is attached.
+    let mut bom = Document {
         version: 1,
-        serial_number: Some(UrnUuid::generate()),
-        metadata: Some(metadata),
-        components: Some(Components(components)),
-        services: None,
-        external_references: None,
-        dependencies: Some(Dependencies(deps)),
-        formulation: Some(vec![build_formula(
-            &stack_ref,
-            lock,
-            &package_refs,
-            runtime_dep_map,
-            build_dep_map,
-            input_hashes,
-            build_environment,
-        )]),
-        compositions: Some(Compositions(vec![compositions_statement(
-            &stack_ref, unresolved,
-        )])),
-        properties: None,
-        vulnerabilities: None,
-        signature: None,
-        annotations: None,
-        spec_version: SpecVersion::V1_5,
+        timestamp: Some(lock.solver.timestamp.clone()),
+        tools: vec![ToolSpec {
+            vendor: "stackhands".to_string(),
+            name: "eb-stack".to_string(),
+            version: lock.solver.engine_version.clone(),
+        }],
+        metadata_component: ComponentSpec {
+            kind: ComponentKind::Application,
+            name: stack_name,
+            version: stack_ver,
+            bom_ref: stack_ref.clone(),
+            purl: None,
+            description: Some(
+                "Planned EasyBuild stack inventory from eb-stack lock (pre-install; not a post-build compliance scan)"
+                    .to_string(),
+            ),
+            sha256: Vec::new(),
+            properties: Vec::new(),
+            external_references: Vec::new(),
+        },
+        metadata_properties: vec![
+            (
+                "eb_stack:document_kind".to_string(),
+                "planned-sbom-from-lock".to_string(),
+            ),
+            (
+                "eb_stack:solver_engine".to_string(),
+                lock.solver.engine.clone(),
+            ),
+            ("eb_stack:toolchain".to_string(), toolchain_label),
+        ],
+        lifecycle: Some(LifecyclePhase::PreBuild),
+        components,
+        dependencies,
     }
+    .assemble();
+    bom.formulation = Some(vec![build_formula(
+        &stack_ref,
+        lock,
+        &package_refs,
+        runtime_dep_map,
+        build_dep_map,
+        input_hashes,
+        build_environment,
+    )]);
+    bom.compositions = Some(Compositions(vec![compositions_statement(
+        &stack_ref, unresolved,
+    )]));
+    sbom_det::seal(&mut bom);
+    bom
 }
 
 /// How this stack is built, as CycloneDX formulation.
@@ -1100,10 +1067,7 @@ pub fn lock_to_cyclonedx_with_facts(lock: &StackLock, facts: SbomFacts<'_>) -> V
 }
 
 fn bom_to_json_value(bom: Bom) -> Value {
-    let mut buf = Vec::new();
-    bom.output_as_json_v1_5(&mut buf)
-        .expect("cyclonedx-bom JSON 1.5 serialize");
-    serde_json::from_slice(&buf).expect("cyclonedx JSON is valid serde_json::Value")
+    sbom_det::to_json_value(bom)
 }
 
 /// Build dep map name -> **runtime** dependency names from universe candidates
