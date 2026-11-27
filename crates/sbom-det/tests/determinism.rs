@@ -103,4 +103,54 @@ fn the_same_input_built_twice_matches_across_a_changed_clock() {
     flipped.components[0].properties.reverse();
     flipped.dependencies[0].depends_on.reverse();
     assert_eq!(sample().to_bytes(), flipped.to_bytes());
+
+    // Basic and colon-less forms are rewritten to RFC 3339. One row: the
+    // basic date the CycloneDX date-time schema rejects as written.
+    let stamps = [("20260814T000000Z", "2026-08-14T00:00:00Z")];
+    for (input, expect) in stamps {
+        let mut basic = sample();
+        basic.timestamp = Some(input.to_string());
+        let text = String::from_utf8(basic.to_bytes()).expect("utf-8");
+        assert!(text.contains(expect), "{input} -> {text}");
+        assert!(!text.contains(input), "{input} was stored unchanged");
+    }
+
+    // Metadata hashes, external refs, and tools sort, so input order cannot
+    // change the sealed bytes. One row covers those three fields together.
+    let orderings = [(
+        "metadata hashes, external refs, and tools",
+        |doc: &mut Document| {
+            doc.metadata_component.sha256.reverse();
+            doc.metadata_component.external_references.reverse();
+            doc.tools.reverse();
+        },
+    )];
+    for (label, flip) in orderings {
+        let mut ordered = sample();
+        ordered.metadata_component.sha256 = vec!["11".repeat(32), "ff".repeat(32)];
+        ordered.metadata_component.external_references = vec![
+            ExternalRef {
+                kind: ExternalKind::Website,
+                url: "https://example.com/z".to_string(),
+                comment: None,
+            },
+            ExternalRef {
+                kind: ExternalKind::Distribution,
+                url: "https://example.com/a".to_string(),
+                comment: Some("source".to_string()),
+            },
+        ];
+        ordered.tools.push(ToolSpec {
+            vendor: "aaa".to_string(),
+            name: "earlier".to_string(),
+            version: "0.0.1".to_string(),
+        });
+        let mut reversed = ordered.clone();
+        flip(&mut reversed);
+        assert_ne!(
+            ordered.metadata_component.sha256, reversed.metadata_component.sha256,
+            "{label}"
+        );
+        assert_eq!(ordered.to_bytes(), reversed.to_bytes(), "{label}");
+    }
 }

@@ -461,6 +461,7 @@ dependencies = [
  "rfc9162-tiles",
  "rustpython-ast",
  "rustpython-parser",
+ "sbom-det",
  "serde",
  "serde_json",
  "serde_yaml",
@@ -470,7 +471,6 @@ dependencies = [
  "thiserror",
  "toml",
  "ureq",
- "uuid",
  "version-ranges",
 ]
 

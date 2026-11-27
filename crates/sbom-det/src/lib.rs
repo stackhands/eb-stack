@@ -2,11 +2,13 @@
 //!
 //! The models, hashes, purls and the JSON 1.5 writer are that crate's.
 //! This one decides what is allowed to vary: a timestamp is written only
-//! when the caller supplies one, `serialNumber` is a UUIDv5 over the
-//! canonical document with the serial omitted, and [`Document::build`]
-//! orders components, dependencies and properties before sealing.
+//! when the caller supplies an RFC 3339 date-time, or a form that
+//! normalises to one with `Z` or a colon offset. `serialNumber` is a
+//! UUIDv5 over the canonical document with the serial omitted, and
+//! [`Document::build`] orders components, dependencies and properties
+//! before sealing. Identical components and dependency edges are kept
+//! once, in the order they first appeared.
 
-use std::convert::TryFrom;
 use std::str::FromStr;
 
 use cyclonedx_bom::external_models::date_time::DateTime;
@@ -113,8 +115,9 @@ pub struct DependencyEdge {
 pub struct Document {
     /// CycloneDX document version (the `version` integer, not the spec).
     pub version: u32,
-    /// ISO-8601 timestamp from the caller. `None`, or a value that does not
-    /// parse, omits the field. The clock is never read.
+    /// Timestamp from the caller. `None`, a value that does not parse, or a
+    /// form that cannot be written as RFC 3339 with `Z` or a colon offset
+    /// omits the field. The clock is never read.
     pub timestamp: Option<String>,
     /// Tools that produced the document.
     pub tools: Vec<ToolSpec>,
@@ -133,8 +136,9 @@ pub struct Document {
 impl Document {
     /// Build a document in the caller's order, with no serial number.
     ///
-    /// Attach any further sections, then [`seal`]. [`build`] is the entry
-    /// that also sorts and seals.
+    /// Identical components and dependency edges are kept once; the first
+    /// occurrence wins. Attach any further sections, then [`seal`].
+    /// [`build`] is the entry that also sorts and seals.
     pub fn assemble(&self) -> Bom {
         let tools = if self.tools.is_empty() {
             None
@@ -150,10 +154,7 @@ impl Document {
             .lifecycle
             .map(|phase| Lifecycles(vec![Lifecycle::Phase(phase.into())]));
         let metadata = Metadata {
-            timestamp: self
-                .timestamp
-                .as_deref()
-                .and_then(|text| DateTime::try_from(text.to_string()).ok()),
+            timestamp: self.timestamp.as_deref().and_then(rfc3339_timestamp),
             tools,
             component: Some(component(&self.metadata_component)),
             properties: properties_of(&self.metadata_properties),
@@ -165,15 +166,17 @@ impl Document {
             version: self.version,
             serial_number: None,
             metadata: Some(metadata),
-            components: Some(Components(self.components.iter().map(component).collect())),
+            components: Some(Components(
+                keep_first(&self.components).iter().map(component).collect(),
+            )),
             services: None,
             external_references: None,
             dependencies: Some(Dependencies(
-                self.dependencies
-                    .iter()
+                dependency_edges(&self.dependencies)
+                    .into_iter()
                     .map(|edge| Dependency {
-                        dependency_ref: edge.bom_ref.clone(),
-                        dependencies: unique_in_order(&edge.depends_on),
+                        dependency_ref: edge.bom_ref,
+                        dependencies: edge.depends_on,
                     })
                     .collect(),
             )),
@@ -191,7 +194,6 @@ impl Document {
     ///
     /// The same inputs produce the same bytes, including when the wall clock
     /// has moved between calls.
-    #[allow(dead_code)] // used by this crate's tests; eb-stack calls `assemble`
     pub fn build(&self) -> Bom {
         let mut ordered = self.clone();
         ordered.order();
@@ -201,25 +203,26 @@ impl Document {
     }
 
     /// JSON 1.5 bytes of [`build`].
-    #[allow(dead_code)] // used by this crate's tests; eb-stack calls `assemble`
     pub fn to_bytes(&self) -> Vec<u8> {
         to_json_bytes(self.build())
     }
 
-    #[allow(dead_code)] // only `build` sorts; eb-stack keeps lock order
     fn order(&mut self) {
         sort_pairs(&mut self.metadata_component.properties);
+        self.metadata_component.sha256.sort();
+        sort_external_refs(&mut self.metadata_component.external_references);
+        self.tools.sort_by(|left, right| {
+            (&left.vendor, &left.name, &left.version).cmp(&(
+                &right.vendor,
+                &right.name,
+                &right.version,
+            ))
+        });
         sort_pairs(&mut self.metadata_properties);
         for component in &mut self.components {
             sort_pairs(&mut component.properties);
             component.sha256.sort();
-            component.external_references.sort_by(|left, right| {
-                (left.kind.rank(), &left.url, &left.comment).cmp(&(
-                    right.kind.rank(),
-                    &right.url,
-                    &right.comment,
-                ))
-            });
+            sort_external_refs(&mut component.external_references);
         }
         self.components.sort_by(|left, right| {
             (&left.bom_ref, &left.name, &left.version).cmp(&(
@@ -359,13 +362,11 @@ fn unique_in_order(items: &[String]) -> Vec<String> {
     out
 }
 
-#[allow(dead_code)] // only `Document::order` sorts properties
 fn sort_pairs(pairs: &mut [(String, String)]) {
     pairs.sort_by(|left, right| (&left.0, &left.1).cmp(&(&right.0, &right.1)));
 }
 
 impl ExternalKind {
-    #[allow(dead_code)] // only `Document::order` sorts references
     fn rank(self) -> u8 {
         match self {
             Self::Distribution => 0,
@@ -400,4 +401,293 @@ impl From<LifecyclePhase> for Phase {
             LifecyclePhase::PreBuild => Self::PreBuild,
         }
     }
+}
+
+fn keep_first<T: Clone + PartialEq>(items: &[T]) -> Vec<T> {
+    let mut kept = Vec::with_capacity(items.len());
+    for item in items {
+        if !kept.contains(item) {
+            kept.push(item.clone());
+        }
+    }
+    kept
+}
+
+fn dependency_edges(edges: &[DependencyEdge]) -> Vec<DependencyEdge> {
+    let mut kept = Vec::with_capacity(edges.len());
+    for edge in edges {
+        let next = DependencyEdge {
+            bom_ref: edge.bom_ref.clone(),
+            depends_on: unique_in_order(&edge.depends_on),
+        };
+        if !kept.contains(&next) {
+            kept.push(next);
+        }
+    }
+    kept
+}
+
+fn sort_external_refs(refs: &mut [ExternalRef]) {
+    refs.sort_by(|left, right| {
+        (left.kind.rank(), &left.url, &left.comment).cmp(&(
+            right.kind.rank(),
+            &right.url,
+            &right.comment,
+        ))
+    });
+}
+
+/// A timestamp the CycloneDX 1.5 date-time schema will accept.
+///
+/// Basic dates, offsets without a colon, and times without seconds are
+/// expanded. A string that is already RFC 3339 is returned unchanged.
+/// Anything that cannot be written with `Z` or `±HH:MM` is refused.
+fn rfc3339_timestamp(text: &str) -> Option<DateTime> {
+    let normalized = normalize_rfc3339(text.trim())?;
+    if !schema_datetime(&normalized) {
+        return None;
+    }
+    DateTime::try_from(normalized).ok()
+}
+
+fn normalize_rfc3339(text: &str) -> Option<String> {
+    let split = text.find(['T', 't'])?;
+    let date = normalize_date(&text[..split])?;
+    let (time, offset) = normalize_clock(&text[split + 1..])?;
+    Some(format!("{date}T{time}{offset}"))
+}
+
+fn normalize_date(date: &str) -> Option<String> {
+    let bytes = date.as_bytes();
+    if bytes.len() == 10
+        && bytes[4] == b'-'
+        && bytes[7] == b'-'
+        && all_digits(&date[..4])
+        && all_digits(&date[5..7])
+        && all_digits(&date[8..10])
+    {
+        return Some(date.to_string());
+    }
+    if bytes.len() == 8 && all_digits(date) {
+        return Some(format!("{}-{}-{}", &date[..4], &date[4..6], &date[6..8]));
+    }
+    None
+}
+
+fn normalize_clock(rest: &str) -> Option<(String, String)> {
+    let offset_at = rest
+        .bytes()
+        .position(|byte| matches!(byte, b'+' | b'-' | b'Z' | b'z'))?;
+    let body = rest[..offset_at].replace(',', ".");
+    let offset = normalize_offset(&rest[offset_at..])?;
+    Some((normalize_hms(&body)?, offset))
+}
+
+fn normalize_offset(offset: &str) -> Option<String> {
+    if offset == "Z" || offset == "z" {
+        return Some("Z".to_string());
+    }
+    let sign = offset.chars().next()?;
+    if sign != '+' && sign != '-' {
+        return None;
+    }
+    let rest = &offset[1..];
+    let bytes = rest.as_bytes();
+    if bytes.len() == 5 && bytes[2] == b':' && all_digits(&rest[..2]) && all_digits(&rest[3..]) {
+        return Some(offset.to_string());
+    }
+    if bytes.len() == 4 && all_digits(rest) {
+        return Some(format!("{sign}{}:{}", &rest[..2], &rest[2..]));
+    }
+    if bytes.len() == 2 && all_digits(rest) {
+        return Some(format!("{sign}{rest}:00"));
+    }
+    None
+}
+
+fn normalize_hms(body: &str) -> Option<String> {
+    if body.is_empty() {
+        return None;
+    }
+    let (main, fraction) = match body.split_once('.') {
+        Some((main, fraction)) if !fraction.is_empty() && all_digits(fraction) => {
+            (main, Some(fraction))
+        }
+        Some(_) => return None,
+        None => (body, None),
+    };
+    let clock = if main.contains(':') {
+        let mut parts = main.split(':');
+        let hour = parts.next()?;
+        let minute = parts.next()?;
+        let second = parts.next();
+        if parts.next().is_some() || !two_digits(hour) || !two_digits(minute) {
+            return None;
+        }
+        match second {
+            Some(second) if two_digits(second) => format!("{hour}:{minute}:{second}"),
+            None => format!("{hour}:{minute}:00"),
+            Some(_) => return None,
+        }
+    } else if main.len() == 6 && all_digits(main) {
+        format!("{}:{}:{}", &main[..2], &main[2..4], &main[4..])
+    } else if main.len() == 4 && all_digits(main) {
+        format!("{}:{}:00", &main[..2], &main[2..])
+    } else {
+        return None;
+    };
+    match fraction {
+        Some(fraction) => Some(format!("{clock}.{fraction}")),
+        None => Some(clock),
+    }
+}
+
+fn schema_datetime(value: &str) -> bool {
+    let Some(split) = value.find('T') else {
+        return false;
+    };
+    schema_date(&value[..split]) && schema_time(&value[split + 1..])
+}
+
+fn schema_date(date: &str) -> bool {
+    if date.len() != 10 {
+        return false;
+    }
+    let Some(year) = parse_four(&date[..4]) else {
+        return false;
+    };
+    let Some(month) = parse_two(&date[5..7]) else {
+        return false;
+    };
+    let Some(day) = parse_two(&date[8..10]) else {
+        return false;
+    };
+    if date.as_bytes()[4] != b'-' || date.as_bytes()[7] != b'-' {
+        return false;
+    }
+    if !(1..=12).contains(&month) || day == 0 {
+        return false;
+    }
+    let max = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        _ => {
+            if is_leap_year(year) {
+                29
+            } else {
+                28
+            }
+        }
+    };
+    day <= max
+}
+
+fn schema_time(time: &str) -> bool {
+    let bytes = time.as_bytes();
+    if bytes.len() < 9 || bytes[2] != b':' || bytes[5] != b':' {
+        return false;
+    }
+    let Some(hour) = parse_two(&time[..2]) else {
+        return false;
+    };
+    let Some(minute) = parse_two(&time[3..5]) else {
+        return false;
+    };
+    let Some(second) = parse_two(&time[6..8]) else {
+        return false;
+    };
+    if hour > 23 || minute > 59 || second > 60 {
+        return false;
+    }
+    let mut index = 8;
+    if bytes.get(index) == Some(&b'.') {
+        index += 1;
+        let start = index;
+        while index < bytes.len() && bytes[index].is_ascii_digit() {
+            index += 1;
+        }
+        if index == start {
+            return false;
+        }
+    }
+    if index >= bytes.len() {
+        return false;
+    }
+    match bytes[index] {
+        b'Z' => index + 1 == bytes.len() && (second != 60 || (hour == 23 && minute == 59)),
+        b'+' => offset_ok(time, index, hour, minute, second, true),
+        b'-' => offset_ok(time, index, hour, minute, second, false),
+        _ => false,
+    }
+}
+
+fn offset_ok(time: &str, index: usize, hour: u8, minute: u8, second: u8, plus: bool) -> bool {
+    let bytes = time.as_bytes();
+    if bytes.len() - index != 6 || bytes[index + 3] != b':' {
+        return false;
+    }
+    let Some(offset_hour) = parse_two(&time[index + 1..index + 3]) else {
+        return false;
+    };
+    let Some(offset_minute) = parse_two(&time[index + 4..index + 6]) else {
+        return false;
+    };
+    if offset_hour > 23 || offset_minute > 59 {
+        return false;
+    }
+    if second != 60 {
+        return true;
+    }
+    let mut utc_hour = i16::from(hour);
+    let mut utc_minute = i16::from(minute);
+    let off_hour = i16::from(offset_hour);
+    let off_minute = i16::from(offset_minute);
+    if plus {
+        utc_hour -= off_hour;
+        utc_minute -= off_minute;
+    } else {
+        utc_hour += off_hour;
+        utc_minute += off_minute;
+    }
+    utc_hour += utc_minute / 60;
+    utc_minute %= 60;
+    if utc_minute < 0 {
+        utc_minute += 60;
+        utc_hour -= 1;
+    }
+    utc_hour = (utc_hour + 24) % 24;
+    utc_hour == 23 && utc_minute == 59
+}
+
+fn is_leap_year(year: u16) -> bool {
+    (year.is_multiple_of(4) && !year.is_multiple_of(100)) || year.is_multiple_of(400)
+}
+
+fn parse_two(text: &str) -> Option<u8> {
+    let bytes = text.as_bytes();
+    if bytes.len() != 2 || !bytes[0].is_ascii_digit() || !bytes[1].is_ascii_digit() {
+        return None;
+    }
+    Some((bytes[0] - b'0') * 10 + (bytes[1] - b'0'))
+}
+
+fn parse_four(text: &str) -> Option<u16> {
+    let bytes = text.as_bytes();
+    if bytes.len() != 4 || !bytes.iter().all(u8::is_ascii_digit) {
+        return None;
+    }
+    Some(
+        u16::from(bytes[0] - b'0') * 1000
+            + u16::from(bytes[1] - b'0') * 100
+            + u16::from(bytes[2] - b'0') * 10
+            + u16::from(bytes[3] - b'0'),
+    )
+}
+
+fn two_digits(text: &str) -> bool {
+    text.len() == 2 && all_digits(text)
+}
+
+fn all_digits(text: &str) -> bool {
+    !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit())
 }

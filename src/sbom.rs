@@ -1,14 +1,10 @@
 //! Planned CycloneDX 1.5 SBOM from a stack lock (pre-install inventory).
 //!
 //! The EasyBuild mapping lives here. Components, dependencies, hashes,
-//! purls, the timestamp and the serial number come from `sbom_det`, the
-//! same file the `sbom-det` crate compiles. The timestamp is the lock's
-//! when it parses, and the serial is derived from the document. Declared
-//! dependency edges stay in lock order. This is a pre-install inventory,
-//! not a post-build scan.
-
-#[path = "sbom_det.rs"]
-mod sbom_det;
+//! purls, the timestamp and the serial number come from the `sbom-det`
+//! crate. The timestamp is the lock's when it is RFC 3339, and the serial
+//! is derived from the document. Declared dependency edges stay in lock
+//! order. This is a pre-install inventory, not a post-build scan.
 
 use crate::domain::{StackLock, Universe};
 use cyclonedx_bom::models::bom::BomReference;
@@ -363,9 +359,10 @@ pub fn lock_to_bom_with_facts(lock: &StackLock, facts: SbomFacts<'_>) -> Bom {
         .clone()
         .unwrap_or_else(|| toolchain_label.clone());
     let stack_ref = format!("pkg:generic/{stack_name}@{stack_ver}");
-    // `assemble` keeps lock order. Sorting the edges would rewrite the
-    // dependsOn list a recipe declared. The serial is applied after the
-    // formulation, which is EasyBuild-specific, is attached.
+    // `assemble` keeps lock order and drops a repeated component or edge.
+    // Sorting the edges would rewrite the dependsOn list a recipe declared.
+    // The serial is applied after the formulation, which is EasyBuild-specific,
+    // is attached.
     let mut bom = Document {
         version: 1,
         timestamp: Some(lock.solver.timestamp.clone()),
@@ -481,7 +478,7 @@ fn build_formula(
             })
             .collect();
 
-        tasks.push(Task {
+        let task = Task {
             bom_ref: BomReference::new(task_ref(package_ref)),
             uid,
             name: Some(format!("{}/{}", package.name, package.version)),
@@ -528,12 +525,20 @@ fn build_formula(
                 "easybuild:easyconfig_path",
                 &package.easyconfig_path,
             )])),
-        });
+        };
+        // A repeated package identity is one task. The schema's uniqueItems
+        // rejects a second copy of the same task or the same edge.
+        if !tasks.contains(&task) {
+            tasks.push(task);
+        }
 
-        task_edges.push(Dependency {
+        let edge = Dependency {
             dependency_ref: task_ref(package_ref),
             dependencies: edges,
-        });
+        };
+        if !task_edges.contains(&edge) {
+            task_edges.push(edge);
+        }
     }
 
     Formula {
