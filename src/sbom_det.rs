@@ -9,8 +9,10 @@
 //! before sealing. Components that share a bom-ref, name and version, and
 //! dependency edges that share a bom-ref, then sort on the canonical JSON
 //! of the whole value, so a reversed input cannot change the sealed bytes.
-//! Identical components and dependency edges are kept once, in the order
-//! they first appeared.
+//! Each component is reduced to the serialised object first (invalid
+//! SHA-256 values dropped, hex lowercased), and identical objects are kept
+//! once before that sort. Dependency edges are kept once, in the order they
+//! first appeared.
 
 use std::str::FromStr;
 
@@ -139,9 +141,10 @@ pub struct Document {
 impl Document {
     /// Build a document in the caller's order, with no serial number.
     ///
-    /// Identical components and dependency edges are kept once; the first
-    /// occurrence wins. Attach any further sections, then [`seal`].
-    /// [`build`] is the entry that also sorts and seals.
+    /// Components that serialise to the same object, and identical
+    /// dependency edges, are kept once. The first occurrence wins. Attach
+    /// any further sections, then [`seal`]. [`build`] is the entry that
+    /// also sorts and seals.
     pub fn assemble(&self) -> Bom {
         let tools = if self.tools.is_empty() {
             None
@@ -170,7 +173,10 @@ impl Document {
             serial_number: None,
             metadata: Some(metadata),
             components: Some(Components(
-                keep_first(&self.components).iter().map(component).collect(),
+                keep_emitted(&self.components)
+                    .iter()
+                    .map(component)
+                    .collect(),
             )),
             services: None,
             external_references: None,
@@ -211,6 +217,7 @@ impl Document {
     }
 
     fn order(&mut self) {
+        normalize_emitted(&mut self.metadata_component);
         sort_pairs(&mut self.metadata_component.properties);
         self.metadata_component.sha256.sort();
         sort_external_refs(&mut self.metadata_component.external_references);
@@ -223,12 +230,15 @@ impl Document {
         });
         sort_pairs(&mut self.metadata_properties);
         for component in &mut self.components {
+            normalize_emitted(component);
             sort_pairs(&mut component.properties);
             component.sha256.sort();
             sort_external_refs(&mut component.external_references);
         }
-        // bom-ref, name and version are not a total key. Canonical JSON of
-        // the whole value orders only the ties, so a distinct key stays put.
+        // Dedup on the serialised object, then order. bom-ref, name and
+        // version are not a total key. Canonical JSON of the whole value
+        // orders only the ties, so a distinct key stays put.
+        self.components = keep_emitted(&self.components);
         self.components.sort_by(|left, right| {
             (&left.bom_ref, &left.name, &left.version)
                 .cmp(&(&right.bom_ref, &right.name, &right.version))
@@ -271,14 +281,18 @@ pub fn encode_purl_qualifier(value: &str) -> String {
 /// Only a 64-digit hex string is a SHA-256. Anything else would be a hash
 /// of the wrong kind.
 pub fn sha256_hash(value: &str) -> Option<Hash> {
+    Some(Hash {
+        alg: HashAlgorithm::SHA_256,
+        content: HashValue(canonical_sha256(value)?),
+    })
+}
+
+fn canonical_sha256(value: &str) -> Option<String> {
     let candidate = value.trim();
     if candidate.len() != 64 || !candidate.chars().all(|c| c.is_ascii_hexdigit()) {
         return None;
     }
-    Some(Hash {
-        alg: HashAlgorithm::SHA_256,
-        content: HashValue(candidate.to_ascii_lowercase()),
-    })
+    Some(candidate.to_ascii_lowercase())
 }
 
 /// Set `serialNumber` to a UUIDv5 over the canonical 1.5 JSON of `bom`
@@ -460,11 +474,35 @@ impl From<LifecyclePhase> for Phase {
     }
 }
 
-fn keep_first<T: Clone + PartialEq>(items: &[T]) -> Vec<T> {
-    let mut kept = Vec::with_capacity(items.len());
-    for item in items {
-        if !kept.contains(item) {
-            kept.push(item.clone());
+fn normalize_text(value: &str) -> String {
+    NormalizedString::new(value).to_string()
+}
+
+/// Rewrite `spec` to the fields [`component`] serialises.
+fn normalize_emitted(spec: &mut ComponentSpec) {
+    spec.name = normalize_text(&spec.name);
+    spec.version = normalize_text(&spec.version);
+    spec.description = spec.description.as_deref().map(normalize_text);
+    spec.sha256 = spec
+        .sha256
+        .iter()
+        .filter_map(|value| canonical_sha256(value))
+        .collect();
+    spec.external_references
+        .retain(|reference| Uri::try_from(reference.url.clone()).is_ok());
+}
+
+/// First spec for each object [`component`] serialises. Later copies go.
+fn keep_emitted(specs: &[ComponentSpec]) -> Vec<ComponentSpec> {
+    let mut kept = Vec::with_capacity(specs.len());
+    let mut seen = Vec::with_capacity(specs.len());
+    for spec in specs {
+        let mut spec = spec.clone();
+        normalize_emitted(&mut spec);
+        let emitted = component(&spec);
+        if !seen.contains(&emitted) {
+            seen.push(emitted);
+            kept.push(spec);
         }
     }
     kept
@@ -939,5 +977,54 @@ mod determinism {
             serial_number(&forward_bytes),
             serial_number(&backward_bytes)
         );
+    }
+
+    #[test]
+    fn emitted_components_are_unique() {
+        let digest = "ab".repeat(32);
+
+        let mut invalid = sample();
+        let mut bad_low = library("twin", "1.0.0");
+        bad_low.sha256 = vec!["aa".to_string()];
+        let mut bad_high = library("twin", "1.0.0");
+        bad_high.sha256 = vec!["bb".to_string()];
+        invalid.components = vec![bad_low, bad_high];
+
+        let mut folded = sample();
+        let mut upper = library("twin", "1.0.0");
+        upper.sha256 = vec![digest.to_ascii_uppercase()];
+        let mut lower = library("twin", "1.0.0");
+        lower.sha256 = vec![digest.clone()];
+        folded.components = vec![upper, lower];
+
+        let mut distinct = sample();
+        let mut low = library("twin", "1.0.0");
+        low.sha256 = vec!["11".repeat(32)];
+        let mut high = library("twin", "1.0.0");
+        high.sha256 = vec!["ff".repeat(32)];
+        distinct.components = vec![low, high];
+
+        let cases = [
+            ("invalid hash", invalid, 1, None),
+            ("sha256 letter case", folded, 1, Some(digest.as_str())),
+            ("distinct digests", distinct, 2, None),
+        ];
+        for (label, doc, count, kept_digest) in cases {
+            let value: serde_json::Value = serde_json::from_slice(&doc.to_bytes()).expect("json");
+            let components = value["components"].as_array().expect("components");
+            assert_eq!(components.len(), count, "{label}");
+            for (index, left) in components.iter().enumerate() {
+                for right in components.iter().skip(index + 1) {
+                    assert_ne!(left, right, "{label}");
+                }
+            }
+            if let Some(kept_digest) = kept_digest {
+                let text = components[0].to_string();
+                assert!(text.contains(kept_digest), "{label}");
+                assert!(!text.contains(&kept_digest.to_ascii_uppercase()), "{label}");
+            } else if count == 1 {
+                assert!(components[0].get("hashes").is_none(), "{label}");
+            }
+        }
     }
 }
